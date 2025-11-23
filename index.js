@@ -10,34 +10,22 @@ import OpenAI from "openai";
 
 const app = express();
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true })); // <- importante para x-www-form-urlencoded
+app.use(bodyParser.urlencoded({ extended: true }));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ==============================
-// LOG de todas las solicitudes
-// ==============================
-app.use((req, res, next) => {
-  console.log("📩 Request recibido en", req.url);
-  console.log("Headers:", req.headers);
-  console.log("Body:", req.body);
-  next();
-});
-
-// ==============================
-// FUNCIÓN: RESPUESTA LIBRE INTELIGENTE
-// ==============================
 async function responderPreguntaLibre(texto, responder) {
   if (!texto || typeof texto !== "string") return false;
 
   const triggers = [
-    "precio","cuánto","cuanto","vale","tienes","hay",
-    "sabores","sabor","envío","envios","despacho","delivery",
-    "horario","pago","metodo","tamaño","medida","cuales","como es"
+    "precio", "cuánto", "cuanto", "vale", "tienes", "hay",
+    "sabores", "sabor", "envío", "envios", "despacho", "delivery",
+    "horario", "pago", "metodo", "tamaño", "medida", "cuales", "como es"
   ];
 
   const lower = texto.toLowerCase();
   const esPregunta = triggers.some(t => lower.includes(t));
+
   if (!esPregunta) return false;
 
   const respuesta = await openai.chat.completions.create({
@@ -47,8 +35,22 @@ async function responderPreguntaLibre(texto, responder) {
         role: "system",
         content: `
 Eres Luna, asistente de Delicias Monte Luna.
-Responde dudas solo usando información oficial.
-Catálogo: Queques, Pan de Guayaba, Alfajores, Muffins, Donuts.
+Responde dudas sin romper el flujo.
+Catálogo oficial:
+- Queques 14 y 20 cm (arándanos, frambuesa, nuez)
+- Pan de Guayaba 40 cm
+- Alfajor de Maicena
+- Alfajores de Sabores
+- Muffins (chocolate, red velvet, chips chocolate, coco, manzana)
+- Queque de Piña
+- Queque de Vainilla
+- Queque de Chocolate
+- Queque Marmoleado
+- Queque de Maracuyá
+- Queque de Naranja
+- Queque con Manjar (piña, vainilla, chocolate, marmoleado, naranja, maracuyá)
+- Queque Premium de Vainilla
+- Donuts de Chocolate
 No inventes precios.
         `
       },
@@ -61,9 +63,6 @@ No inventes precios.
   return true;
 }
 
-// ==============================
-// DETECTAR CONFIRMACIÓN DE PEDIDO
-// ==============================
 function clienteConfirmoPedido(texto) {
   if (!texto || typeof texto !== "string") return false;
   texto = texto.toLowerCase();
@@ -79,53 +78,56 @@ function clienteConfirmoPedido(texto) {
   );
 }
 
-// ==============================
-// ENDPOINT PRINCIPAL /whatsapp
-// ==============================
+app.get("/", (req, res) => {
+  res.send("Servidor Luna funcionando correctamente ✨");
+});
+
 app.post("/whatsapp", async (req, res) => {
   try {
-    // ⚡ Adaptado a WhatsAuto
-    const from = req.body.phone; // número de whatsapp
-    let textoMensaje = req.body.message || "";
-    const type = "text"; // WhatsAuto solo envía texto
-    const mediaUrl = null;
+    const { message, type, mediaUrl, phone, sender } = req.body;
+    let textoMensaje = message || "";
 
-    if (!from || !textoMensaje) {
-      return res.json({ reply: "No se pudo procesar tu mensaje. Intenta nuevamente." });
+    if (type === "voice" && mediaUrl) {
+      textoMensaje = await transcribirAudio(mediaUrl);
     }
 
-    // 1️⃣ Buscar o crear cliente
+    if (!textoMensaje || typeof textoMensaje !== "string") {
+      return res.json({
+        reply: "¡Gracias por tu mensaje! 😊 Por ahora solo puedo responder texto. ¿En qué puedo ayudarte?"
+      });
+    }
+
     let { data: cliente } = await supabase
       .from("clientes_detallados")
       .select("*")
-      .eq("whatsapp", from)
+      .eq("whatsapp", phone)
       .single();
 
     if (!cliente) {
       const nuevo = await supabase
         .from("clientes_detallados")
-        .insert({ whatsapp: from, nombre: req.body.sender })
+        .insert({ whatsapp: phone })
         .select();
       cliente = nuevo.data?.[0];
     }
 
-    // 2️⃣ Confirmación de pedido
     if (clienteConfirmoPedido(textoMensaje)) {
-      await supabase.from("pedidos").insert({ whatsapp: from, confirmado: true });
-      return res.json({ reply: "¡Pedido confirmado con éxito! Gracias por preferir Delicias Monte Luna ❤️✨" });
+      await supabase.from("pedidos").insert({ whatsapp: phone, confirmado: true });
+      return res.json({
+        reply: "¡Pedido confirmado con éxito! Gracias por preferir Delicias Monte Luna ❤️✨\n\n**✅**"
+      });
     }
 
-    // 3️⃣ Respuesta libre inteligente
-    const respondida = await responderPreguntaLibre(textoMensaje, async msg => res.json({ reply: msg }));
+    const respondida = await responderPreguntaLibre(textoMensaje, async (msg) => {
+      return res.json({ reply: msg });
+    });
     if (respondida) return;
 
-    // 4️⃣ Cargar historial
     const { data: historial } = await supabase
       .from("historial")
       .select("*")
-      .eq("whatsapp", from);
+      .eq("whatsapp", phone);
 
-    // 5️⃣ Detectar datos faltantes del cliente
     const datosFaltantes = [];
     if (!cliente.nombre) datosFaltantes.push("nombre");
     if (!cliente.comuna) datosFaltantes.push("comuna");
@@ -136,19 +138,28 @@ app.post("/whatsapp", async (req, res) => {
 
     if (datosFaltantes.length > 0) {
       const siguiente = datosFaltantes[0];
-      return res.json({ reply: `Antes de avanzar, necesito tu **${siguiente}**. ¿Podrías indicarme tu ${siguiente}? 💛` });
+      return res.json({
+        reply: `Antes de avanzar, necesito tu **${siguiente}**.\n\n¿Podrías indicarme tu ${siguiente}? 💛`
+      });
     }
 
-    // 6️⃣ Generar prompt principal
     const prompt = generarPrompt(historial || [], textoMensaje, cliente);
-
-    // 7️⃣ GPT respuesta principal
     let respuestaLuna = "";
+
     try {
       const gptResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "Eres Luna, asistente de Delicias Monte Luna. Responde amable y orientada a ventas." },
+          {
+            role: "system",
+            content: `
+Eres Luna, asistente de Delicias Monte Luna.
+No repitas mensajes de bienvenida.
+Habla natural, amable y orientada a ventas.
+Usa el historial del cliente.
+Ofrece opciones claras y guía el pedido.
+            `
+          },
           { role: "user", content: prompt }
         ],
         temperature: 0.75
@@ -158,14 +169,12 @@ app.post("/whatsapp", async (req, res) => {
       respuestaLuna = "Hubo un problema al generar tu respuesta 💛 Intenta nuevamente.";
     }
 
-    // 8️⃣ Guardar historial
     await supabase.from("historial").insert({
-      whatsapp: from,
+      whatsapp: phone,
       mensaje_cliente: textoMensaje,
       respuesta_luna: respuestaLuna
     });
 
-    // 9️⃣ Enviar respuesta final
     return res.json({ reply: respuestaLuna || "No pude procesar tu mensaje, intenta nuevamente 💛" });
 
   } catch (e) {
@@ -174,13 +183,5 @@ app.post("/whatsapp", async (req, res) => {
   }
 });
 
-// ==============================
-// ENDPOINT DE PRUEBA
-// ==============================
-app.get("/", (req, res) => res.send("Servidor Luna funcionando correctamente ✨"));
-
-// ==============================
-// PUERTO
-// ==============================
 const PORT = parseInt(process.env.PORT) || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor Luna arriba en puerto ${PORT}`));
