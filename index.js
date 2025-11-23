@@ -14,26 +14,26 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+/* ============================================================
+    🔹 RESPUESTA LIBRE INTELIGENTE
+============================================================ */
 async function responderPreguntaLibre(texto, responder) {
   if (!texto || typeof texto !== "string") return false;
 
   const triggers = [
-    "precio", "cuánto", "cuanto", "vale", "tienes", "hay",
-    "sabores", "sabor", "envío", "envios", "despacho", "delivery",
-    "horario", "pago", "metodo", "tamaño", "medida", "cuales", "como es"
+    "precio","cuánto","cuanto","vale","tienes","hay",
+    "sabores","sabor","envío","envios","despacho","delivery",
+    "horario","pago","metodo","tamaño","medida","cuales","como es"
   ];
 
   const lower = texto.toLowerCase();
   const esPregunta = triggers.some(t => lower.includes(t));
-
   if (!esPregunta) return false;
 
   const respuesta = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      {
-        role: "system",
-        content: `
+      { role: "system", content: `
 Eres Luna, asistente de Delicias Monte Luna.
 Responde dudas sin romper el flujo.
 Catálogo oficial:
@@ -52,8 +52,7 @@ Catálogo oficial:
 - Queque Premium de Vainilla
 - Donuts de Chocolate
 No inventes precios.
-        `
-      },
+      ` },
       { role: "user", content: texto }
     ],
     temperature: 0.6
@@ -63,6 +62,9 @@ No inventes precios.
   return true;
 }
 
+/* ============================================================
+    🔹 DETECTAR CONFIRMACIÓN DE PEDIDO
+============================================================ */
 function clienteConfirmoPedido(texto) {
   if (!texto || typeof texto !== "string") return false;
   texto = texto.toLowerCase();
@@ -78,56 +80,73 @@ function clienteConfirmoPedido(texto) {
   );
 }
 
-app.get("/", (req, res) => {
+/* ============================================================
+    🔹 ENDPOINT PRUEBA
+============================================================ */
+app.get("/", (req,res) => {
   res.send("Servidor Luna funcionando correctamente ✨");
 });
 
-app.post("/whatsapp", async (req, res) => {
+/* ============================================================
+    🔹 ENDPOINT PRINCIPAL /whatsapp
+============================================================ */
+app.post("/whatsapp", async (req,res) => {
   try {
-    const { message, type, mediaUrl, phone, sender } = req.body;
+    const { from, message, type, mediaUrl } = req.body;
+
     let textoMensaje = message || "";
 
-    if (type === "voice" && mediaUrl) {
-      textoMensaje = await transcribirAudio(mediaUrl);
-    }
-
-    if (!textoMensaje || typeof textoMensaje !== "string") {
+    // Si NO es texto ni voz → responder mensaje por defecto
+    if (!textoMensaje && type !== "voice") {
       return res.json({
         reply: "¡Gracias por tu mensaje! 😊 Por ahora solo puedo responder texto. ¿En qué puedo ayudarte?"
       });
     }
 
+    // 1️⃣ Buscar o crear cliente
     let { data: cliente } = await supabase
       .from("clientes_detallados")
       .select("*")
-      .eq("whatsapp", phone)
+      .eq("whatsapp", from)
       .single();
 
     if (!cliente) {
       const nuevo = await supabase
         .from("clientes_detallados")
-        .insert({ whatsapp: phone })
+        .insert({ whatsapp: from })
         .select();
       cliente = nuevo.data?.[0];
     }
 
+    // 2️⃣ Transcribir nota de voz si aplica
+    if (type === "voice" && mediaUrl) {
+      textoMensaje = await transcribirAudio(mediaUrl);
+    }
+
+    // 3️⃣ Confirmación de pedido
     if (clienteConfirmoPedido(textoMensaje)) {
-      await supabase.from("pedidos").insert({ whatsapp: phone, confirmado: true });
+      await supabase.from("pedidos").insert({
+        whatsapp: from,
+        confirmado: true
+      });
       return res.json({
         reply: "¡Pedido confirmado con éxito! Gracias por preferir Delicias Monte Luna ❤️✨\n\n**✅**"
       });
     }
 
+    // 4️⃣ Respuesta libre inteligente
     const respondida = await responderPreguntaLibre(textoMensaje, async (msg) => {
       return res.json({ reply: msg });
     });
     if (respondida) return;
 
+    // 5️⃣ Cargar historial
     const { data: historial } = await supabase
       .from("historial")
       .select("*")
-      .eq("whatsapp", phone);
+      .eq("whatsapp", from);
 
+    // 6️⃣ Detectar datos faltantes
     const datosFaltantes = [];
     if (!cliente.nombre) datosFaltantes.push("nombre");
     if (!cliente.comuna) datosFaltantes.push("comuna");
@@ -137,15 +156,16 @@ app.post("/whatsapp", async (req, res) => {
     if (!cliente.metodo_pago) datosFaltantes.push("método de pago");
 
     if (datosFaltantes.length > 0) {
-      const siguiente = datosFaltantes[0];
       return res.json({
-        reply: `Antes de avanzar, necesito tu **${siguiente}**.\n\n¿Podrías indicarme tu ${siguiente}? 💛`
+        reply: `Antes de avanzar, necesito tu **${datosFaltantes[0]}**.\n\n¿Podrías indicarme tu ${datosFaltantes[0]}? 💛`
       });
     }
 
+    // 7️⃣ Generar prompt principal
     const prompt = generarPrompt(historial || [], textoMensaje, cliente);
-    let respuestaLuna = "";
 
+    // 8️⃣ Solicitar respuesta a GPT
+    let respuestaLuna = "";
     try {
       const gptResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -165,23 +185,34 @@ Ofrece opciones claras y guía el pedido.
         temperature: 0.75
       });
       respuestaLuna = gptResponse.choices?.[0]?.message?.content;
-    } catch (e) {
+    } catch {
       respuestaLuna = "Hubo un problema al generar tu respuesta 💛 Intenta nuevamente.";
     }
 
+    // 9️⃣ Guardar historial
     await supabase.from("historial").insert({
-      whatsapp: phone,
+      whatsapp: from,
       mensaje_cliente: textoMensaje,
       respuesta_luna: respuestaLuna
     });
 
-    return res.json({ reply: respuestaLuna || "No pude procesar tu mensaje, intenta nuevamente 💛" });
+    // 1️⃣0️⃣ Enviar respuesta final
+    return res.json({
+      reply: respuestaLuna || "No pude procesar tu mensaje, intenta nuevamente 💛"
+    });
 
   } catch (e) {
     console.error("Error en /whatsapp:", e);
-    return res.json({ reply: "Ocurrió un error interno. Intenta nuevamente 💛" });
+    return res.json({
+      reply: "Ocurrió un error interno. Intenta nuevamente 💛"
+    });
   }
 });
 
+/* ============================================================
+    🔹 PUERTO
+============================================================ */
 const PORT = parseInt(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`🚀 Servidor Luna arriba en puerto ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 Servidor Luna arriba en puerto ${PORT}`)
+);
