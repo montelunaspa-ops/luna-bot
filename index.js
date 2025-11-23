@@ -17,6 +17,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     🔹 FUNCIÓN: RESPUESTA LIBRE INTELIGENTE
    ============================================================ */
 async function responderPreguntaLibre(texto, responder) {
+
+  if (!texto || typeof texto !== "string") return false; // protección
+
   const triggers = [
     "precio", "cuánto", "cuanto", "vale", "tienes", "hay",
     "sabores", "sabor", "envío", "envios", "despacho", "delivery",
@@ -48,7 +51,7 @@ Catálogo oficial:
 - Queque Marmoleado
 - Queque de Maracuyá
 - Queque de Naranja
-- Queque con Manjar (sabores: piña, vainilla, chocolate, marmoleado, naranja, maracuyá)
+- Queque con Manjar (piña, vainilla, chocolate, marmoleado, naranja, maracuyá)
 - Queque Premium de Vainilla
 - Donuts de Chocolate
 No inventes precios.
@@ -67,12 +70,13 @@ No inventes precios.
     🔹 DETECTAR CONFIRMACIÓN DE PEDIDO
    ============================================================ */
 function clienteConfirmoPedido(texto) {
-  if (!texto) return false;
+  if (!texto || typeof texto !== "string") return false; // protección
+
   texto = texto.toLowerCase();
   return (
     texto.includes("confirmo") ||
-    texto.includes("si confirmo") ||
     texto.includes("sí confirmo") ||
+    texto.includes("si confirmo") ||
     texto.includes("acepto") ||
     texto.includes("confirmado") ||
     texto.includes("realizar pedido") ||
@@ -95,6 +99,16 @@ app.post("/whatsapp", async (req, res) => {
   try {
     const { from, message, type, mediaUrl } = req.body;
 
+    /* 0️⃣ Normalización inicial */
+    let textoMensaje = message || "";
+
+    // Si el mensaje NO es texto (stickers, imágenes sin caption, etc.)
+    if (!textoMensaje || typeof textoMensaje !== "string") {
+      return res.json({
+        reply: "¡Gracias por tu mensaje! 😊 Por ahora solo puedo responder texto. ¿En qué puedo ayudarte?"
+      });
+    }
+
     /* 1️⃣ Buscar o crear cliente */
     let { data: cliente } = await supabase
       .from("clientes_detallados")
@@ -112,7 +126,6 @@ app.post("/whatsapp", async (req, res) => {
     }
 
     /* 2️⃣ Convertir notas de voz */
-    let textoMensaje = message;
     if (type === "voice" && mediaUrl) {
       try {
         textoMensaje = await transcribirAudio(mediaUrl);
@@ -155,7 +168,6 @@ app.post("/whatsapp", async (req, res) => {
     if (!cliente.tipo_vivienda) datosFaltantes.push("tipo de vivienda");
     if (!cliente.metodo_pago) datosFaltantes.push("método de pago");
 
-    /* Si falta un dato → preguntar solo ese */
     if (datosFaltantes.length > 0) {
       const siguiente = datosFaltantes[0];
 
@@ -193,7 +205,7 @@ Ofrece opciones claras y guía el pedido.
       respuestaLuna = "Hubo un problema al generar tu respuesta 💛 Intenta nuevamente.";
     }
 
-    /* 9️⃣ Guardar en historial */
+    /* 9️⃣ Guardar historial */
     await supabase.from("historial").insert({
       whatsapp: from,
       mensaje_cliente: textoMensaje,
