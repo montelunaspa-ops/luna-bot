@@ -13,17 +13,16 @@ app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ✅ Endpoint de prueba para verificar que el servidor está activo
+// Endpoint de prueba
 app.get("/", (req, res) => {
   res.send("Servidor Luna funcionando ✅");
 });
 
-// ✅ Endpoint principal para WhatsApp / WhatAuto
+// Endpoint principal
 app.post("/whatsapp", async (req, res) => {
   try {
     const { from, message, type, mediaUrl } = req.body;
 
-    // 1️⃣ Verificar si el cliente existe
     let { data: cliente } = await supabase
       .from("clientes")
       .select("*")
@@ -38,29 +37,25 @@ app.post("/whatsapp", async (req, res) => {
       cliente = insert.data[0];
     }
 
-    // 2️⃣ Convertir nota de voz a texto si aplica
     let textoMensaje = message;
     if (type === "voice" && mediaUrl) {
       textoMensaje = await transcribirAudio(mediaUrl);
     }
 
-    // 3️⃣ Obtener historial del cliente
     const { data: historial } = await supabase
       .from("historial")
       .select("*")
       .eq("whatsapp", from);
 
-    // 4️⃣ Generar prompt dinámico para GPT
     const prompt = generarPrompt(historial || [], textoMensaje, cliente);
 
-    // 5️⃣ Llamar a OpenAI GPT-4o-mini de manera segura
     const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
           content:
-            "Eres Luna, asistente virtual de Delicias Monte Luna. Sigue el flujo de ventas de forma fluida y persuasiva. Responde como un vendedor humano y toma pedidos respetando el flujo completo de catálogo, sabores, porciones, cantidades, despacho y resumen final."
+            "Eres Luna, asistente virtual de Delicias Monte Luna. Sigue el flujo de ventas de forma fluida y persuasiva."
         },
         { role: "user", content: prompt }
       ],
@@ -69,7 +64,6 @@ app.post("/whatsapp", async (req, res) => {
 
     const respuestaLuna = gptResponse.choices?.[0]?.message?.content;
 
-    // Manejo seguro si la IA no devuelve respuesta
     if (!respuestaLuna) {
       res.json({
         reply:
@@ -78,14 +72,12 @@ app.post("/whatsapp", async (req, res) => {
       return;
     }
 
-    // 6️⃣ Guardar historial en Supabase
     await supabase.from("historial").insert({
       whatsapp: from,
       mensaje_cliente: textoMensaje,
       respuesta_luna: respuestaLuna
     });
 
-    // 7️⃣ Responder a WhatsApp / WhatAuto
     res.json({ reply: respuestaLuna });
   } catch (error) {
     console.error("Error en /whatsapp:", error);
@@ -96,7 +88,8 @@ app.post("/whatsapp", async (req, res) => {
   }
 });
 
-// ✅ Puerto dinámico para Render
+// Puerto dinámico
 const PORT = parseInt(process.env.PORT) || 3000;
 app.listen(PORT, () => {
-  console.log(`
+  console.log(`Servidor escuchando en puerto ${PORT}`);
+});
