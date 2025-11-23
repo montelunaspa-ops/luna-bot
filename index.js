@@ -135,3 +135,62 @@ app.post("/whatsapp", async (req, res) => {
       return res.json({ reply: msg });
     });
     if (respondida) return;
+
+    // 5️⃣ Obtener historial
+    const { data: historial } = await supabase
+      .from("historial")
+      .select("*")
+      .eq("whatsapp", from);
+
+    // 6️⃣ Generar prompt del flujo principal
+    const prompt = generarPrompt(historial || [], textoMensaje, cliente);
+
+    // 7️⃣ GPT Respuesta principal
+    let respuestaLuna = "";
+    try {
+      const gptResponse = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Eres Luna, asistente virtual de Delicias Monte Luna. Mantén un flujo comercial claro, humano y natural. No repitas mensajes de bienvenida. Responde según el contexto del historial."
+          },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.7
+      });
+
+      respuestaLuna = gptResponse.choices?.[0]?.message?.content;
+    } catch (e) {
+      respuestaLuna = "Hubo un error generando tu respuesta. Intenta nuevamente 💛";
+    }
+
+    // 8️⃣ Guardar historial
+    try {
+      await supabase.from("historial").insert({
+        whatsapp: from,
+        mensaje_cliente: textoMensaje,
+        respuesta_luna: respuestaLuna
+      });
+    } catch {}
+
+    // 9️⃣ Enviar respuesta
+    if (!respuestaLuna) respuestaLuna = "No pude procesar tu mensaje, intenta nuevamente 💛";
+
+    res.json({ reply: respuestaLuna });
+  } catch (error) {
+    console.error("Error en /whatsapp:", error);
+    res.json({
+      reply: "Ocurrió un error, intenta nuevamente más tarde 💛"
+    });
+  }
+});
+
+// ================================
+// 🔹 PUERTO RENDER
+// ================================
+const PORT = parseInt(process.env.PORT) || 3000;
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en puerto ${PORT}`);
+});
