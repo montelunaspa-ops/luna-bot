@@ -1,34 +1,29 @@
 import express from "express";
-import bodyParser from "body-parser";
-import dotenv from "dotenv";
-dotenv.config();
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-/* ============================================================
-    🔍 ENDPOINT PARA VER LO QUE WHATAUTO ESTÁ ENVIANDO
-   ============================================================ */
-app.post("/debug-whatsauto", (req, res) => {
-  console.log("📦 Datos recibidos desde WhatsAuto:", req.body);
+// --- Endpoint para probar desde Postman ---
+app.post("/debug-whatsapp", async (req, res) => {
+  console.log("📩 Request recibido en /debug-whatsapp:");
+  console.log("Headers:", req.headers);
+  console.log("Body:", req.body);
 
   return res.json({
-    recibido: req.body,
-    mensaje: "OK — Aquí están los datos que WhatsAuto envió."
+    ok: true,
+    message: "Request recibido correctamente",
+    data: req.body
   });
 });
 
-/* ============================================================
-    🚀 PRUEBA SIMPLE
-   ============================================================ */
+// --- Página raíz ---
 app.get("/", (req, res) => {
-  res.send("Debug activo ✔️");
+  res.send("Servidor WhatsApp Bot activo 🚀");
 });
 
-/* ============================================================
-    🔌 PUERTO
-   ============================================================ */
-const PORT = parseInt(process.env.PORT) || 3000;
-app.listen(PORT, () =>
-  console.log(`🚀 Servidor de debug arriba en puerto ${PORT}`)
-);
+// --- Iniciar servidor ---
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
+});
