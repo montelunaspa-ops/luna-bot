@@ -97,7 +97,7 @@ app.post("/whatsapp", async (req, res) => {
       respuestaLuna =
         "Lo siento, no pude procesar tu mensaje. Intenta nuevamente.";
     }
-
+    res.setHeader("Content-Type", "application/json");
     res.json({ reply: respuestaLuna });
   } catch (error) {
     console.error("Error en /whatsapp:", error);
