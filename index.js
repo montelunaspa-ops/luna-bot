@@ -13,11 +13,12 @@ app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Endpoint principal para WhatsApp
 app.post("/whatsapp", async (req, res) => {
   try {
     const { from, message, type, mediaUrl } = req.body;
 
-    // Revisar cliente en la DB
+    // 1️⃣ Verificar si cliente existe
     let { data: cliente } = await supabase
       .from("clientes")
       .select("*")
@@ -28,34 +29,36 @@ app.post("/whatsapp", async (req, res) => {
       await supabase.from("clientes").insert({ whatsapp: from });
     }
 
-    // Convertir nota de voz a texto si aplica
+    // 2️⃣ Convertir nota de voz a texto si aplica
     let textoMensaje = message;
     if (type === "voice" && mediaUrl) {
       textoMensaje = await transcribirAudio(mediaUrl);
     }
 
-    // Obtener historial
+    // 3️⃣ Obtener historial de conversación
     const { data: historial } = await supabase
       .from("historial")
       .select("*")
       .eq("whatsapp", from);
 
-    // Generar respuesta GPT
+    // 4️⃣ Generar prompt para IA
     const prompt = generarPrompt(historial || [], textoMensaje);
+
     const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }]
     });
+
     const respuestaLuna = gptResponse.choices[0].message.content;
 
-    // Guardar historial
+    // 5️⃣ Guardar historial
     await supabase.from("historial").insert({
       whatsapp: from,
       mensaje_cliente: textoMensaje,
       respuesta_luna: respuestaLuna
     });
 
-    // Responder a WhatsApp
+    // 6️⃣ Responder
     res.json({ text: respuestaLuna });
 
   } catch (error) {
@@ -64,6 +67,8 @@ app.post("/whatsapp", async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT, () => {
-  console.log(`Servidor escuchando en puerto ${process.env.PORT}`);
+// 7️⃣ Escuchar en puerto asignado por Render
+const PORT = parseInt(process.env.PORT) || 3000;
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en puerto ${PORT}`);
 });
