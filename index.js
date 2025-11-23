@@ -38,7 +38,7 @@ app.post("/whatsapp", async (req, res) => {
       cliente = insert.data[0];
     }
 
-    // 2️⃣ Convertir nota de voz a texto si es necesario
+    // 2️⃣ Convertir nota de voz a texto si aplica
     let textoMensaje = message;
     if (type === "voice" && mediaUrl) {
       textoMensaje = await transcribirAudio(mediaUrl);
@@ -53,13 +53,30 @@ app.post("/whatsapp", async (req, res) => {
     // 4️⃣ Generar prompt dinámico para GPT
     const prompt = generarPrompt(historial || [], textoMensaje, cliente);
 
-    // 5️⃣ Llamar a OpenAI para generar respuesta
+    // 5️⃣ Llamar a OpenAI GPT-4o-mini de manera segura
     const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }]
+      messages: [
+        {
+          role: "system",
+          content:
+            "Eres Luna, asistente virtual de Delicias Monte Luna. Sigue el flujo de ventas de forma fluida y persuasiva. Responde como un vendedor humano y toma pedidos respetando el flujo completo de catálogo, sabores, porciones, cantidades, despacho y resumen final."
+        },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.7
     });
 
-    const respuestaLuna = gptResponse.choices[0].message.content;
+    const respuestaLuna = gptResponse.choices?.[0]?.message?.content;
+
+    // Manejo seguro si la IA no devuelve respuesta
+    if (!respuestaLuna) {
+      res.json({
+        reply:
+          "Lo siento, no pude procesar tu mensaje correctamente. Intenta nuevamente."
+      });
+      return;
+    }
 
     // 6️⃣ Guardar historial en Supabase
     await supabase.from("historial").insert({
@@ -68,13 +85,13 @@ app.post("/whatsapp", async (req, res) => {
       respuesta_luna: respuestaLuna
     });
 
-    // 7️⃣ Responder a WhatsApp / WhatAuto en formato esperado
+    // 7️⃣ Responder a WhatsApp / WhatAuto
     res.json({ reply: respuestaLuna });
-
   } catch (error) {
     console.error("Error en /whatsapp:", error);
     res.status(500).json({
-      reply: "Lo siento, ocurrió un error en el servidor. Por favor intenta nuevamente."
+      reply:
+        "Lo siento, ocurrió un error en el servidor. Por favor intenta nuevamente."
     });
   }
 });
@@ -82,5 +99,4 @@ app.post("/whatsapp", async (req, res) => {
 // ✅ Puerto dinámico para Render
 const PORT = parseInt(process.env.PORT) || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en puerto ${PORT}`);
-});
+  console.log(`
