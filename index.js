@@ -5,7 +5,7 @@ dotenv.config();
 
 import { supabase } from "./supabase.js";
 import { generarPrompt } from "./prompts.js";
-import { transcribirAudio, validarComuna } from "./utils.js";
+import { transcribirAudio } from "./utils.js";
 import OpenAI from "openai";
 
 const app = express();
@@ -13,17 +13,92 @@ app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Endpoint de prueba
+// ================================
+// 🔹 FUNCION: RESPUESTA LIBRE INTELIGENTE
+// ================================
+async function responderPreguntaLibre(texto, responder) {
+  const triggers = [
+    "precio", "cuánto", "cuanto", "vale", "tienes", "hay",
+    "sabores", "sabor", "envío", "envios", "despacho", "delivery",
+    "horario", "pago", "metodo", "tamaño", "medida", "cuales", "como es"
+  ];
+
+  const lower = texto.toLowerCase();
+  const esPregunta = triggers.some(t => lower.includes(t));
+
+  if (!esPregunta) return false;
+
+  const respuesta = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `
+Eres Luna, asistente de Delicias Monte Luna.
+Responde de forma amable y clara usando SOLO la información oficial:
+
+CATÁLOGO:
+- Queques artesanales 14 y 20 cm (arándanos, frambuesa, nuez)
+- Pan de Guayaba 40 cm
+- Alfajor de Maicena
+- Alfajores de Sabores
+- Muffins (chocolate, red velvet, chips chocolate, coco, manzana)
+- Queque de Piña
+- Queque de Vainilla
+- Queque de Chocolate
+- Queque Marmoleado
+- Queque de Maracuyá
+- Queque de Naranja
+- Queque con Manjar (sabores: piña, vainilla, chocolate, marmoleado, naranja y maracuyá)
+- Queque Premium de Vainilla
+- Donuts de Chocolate
+
+NO inventes precios si no están: responde diciendo que se cotizan al confirmar el pedido.
+NO rompas el flujo, solo complementa dudas.
+        `
+      },
+      { role: "user", content: texto }
+    ],
+    temperature: 0.6
+  });
+
+  await responder(respuesta.choices[0].message.content);
+  return true;
+}
+
+// ================================
+// 🔹 FUNCION: DETECTAR CONFIRMACIÓN DE PEDIDO
+// ================================
+function clienteConfirmoPedido(texto) {
+  texto = texto.toLowerCase();
+  return (
+    texto.includes("confirmo") ||
+    texto.includes("si confirmo") ||
+    texto.includes("sí confirmo") ||
+    texto.includes("acepto") ||
+    texto.includes("confirmado") ||
+    texto.includes("hagan el pedido") ||
+    texto.includes("realizar pedido") ||
+    texto.includes("quiero mi pedido") ||
+    texto.includes("quiero el pedido")
+  );
+}
+
+// ================================
+// 🔹 ENDPOINT DE PRUEBA
+// ================================
 app.get("/", (req, res) => {
   res.send("Servidor Luna funcionando ✅");
 });
 
-// Endpoint principal para WhatAuto
+// ================================
+// 🔹 ENDPOINT PRINCIPAL WHATAUTO
+// ================================
 app.post("/whatsapp", async (req, res) => {
   try {
     const { from, message, type, mediaUrl } = req.body;
 
-    // 1️⃣ Verificar si el cliente existe
+    // 1️⃣ Buscar o crear cliente
     let { data: cliente } = await supabase
       .from("clientes")
       .select("*")
@@ -38,78 +113,25 @@ app.post("/whatsapp", async (req, res) => {
       cliente = insert.data?.[0] || { whatsapp: from };
     }
 
-    // 2️⃣ Convertir nota de voz a texto si aplica
+    // 2️⃣ Convertir voz → texto
     let textoMensaje = message;
     if (type === "voice" && mediaUrl) {
       try {
         textoMensaje = await transcribirAudio(mediaUrl);
-      } catch (e) {
-        console.error("Error transcribiendo audio:", e);
+      } catch {
         textoMensaje = "[Nota de voz no entendida]";
       }
     }
 
-    // 3️⃣ Obtener historial del cliente
-    const { data: historial } = await supabase
-      .from("historial")
-      .select("*")
-      .eq("whatsapp", from);
-
-    // 4️⃣ Generar prompt dinámico para GPT
-    const prompt = generarPrompt(historial || [], textoMensaje, cliente);
-
-    // 5️⃣ Llamar a GPT de manera segura
-    let respuestaLuna = "";
-    try {
-      const gptResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "Eres Luna, asistente virtual de Delicias Monte Luna. Sigue el flujo de ventas completo de forma fluida y humana. Siempre envía preguntas sobre sabores, porciones, dirección y contacto. Termina con resumen del pedido y costo de despacho."
-          },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.7
+    // 3️⃣ Manejar confirmación de pedido
+    if (clienteConfirmoPedido(textoMensaje)) {
+      return res.json({
+        reply: "¡Perfecto! Tu pedido ha sido confirmado. Gracias por comprar en Delicias Monte Luna ❤️🥰\n\n**✅**"
       });
-
-      respuestaLuna = gptResponse.choices?.[0]?.message?.content;
-    } catch (e) {
-      console.error("Error GPT:", e);
-      respuestaLuna =
-        "Lo siento, no pude generar tu respuesta en este momento. Intenta nuevamente.";
     }
 
-    // 6️⃣ Guardar historial
-    try {
-      await supabase.from("historial").insert({
-        whatsapp: from,
-        mensaje_cliente: textoMensaje,
-        respuesta_luna: respuestaLuna
-      });
-    } catch (e) {
-      console.error("Error guardando historial:", e);
-    }
-
-    // 7️⃣ Responder siempre con 'reply'
-    if (!respuestaLuna) {
-      respuestaLuna =
-        "Lo siento, no pude procesar tu mensaje. Intenta nuevamente.";
-    }
-    res.setHeader("Content-Type", "application/json");
-    res.json({ reply: respuestaLuna });
-  } catch (error) {
-    console.error("Error en /whatsapp:", error);
-    res.json({
-      reply:
-        "Lo siento, ocurrió un error en el servidor. Intenta nuevamente más tarde."
+    // 4️⃣ Respuesta libre inteligente
+    const respondida = await responderPreguntaLibre(textoMensaje, async (msg) => {
+      return res.json({ reply: msg });
     });
-  }
-});
-
-// Puerto dinámico para Render
-const PORT = parseInt(process.env.PORT) || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor escuchando en puerto ${PORT}`);
-});
+    if (respondida) return;
