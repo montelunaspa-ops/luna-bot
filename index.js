@@ -143,13 +143,25 @@ app.post("/whatsapp", async (req, res) => {
       .eq("whatsapp", from);
 
     /* 5️⃣ Datos faltantes */
-    const datosFaltantes = [];
-    if (!cliente?.nombre) datosFaltantes.push("nombre");
-    if (!cliente?.comuna) datosFaltantes.push("comuna");
-    if (!cliente?.direccion) datosFaltantes.push("dirección");
-    if (!cliente?.punto_referencia) datosFaltantes.push("punto de referencia");
-    if (!cliente?.tipo_vivienda) datosFaltantes.push("tipo de vivienda");
-    if (!cliente?.metodo_pago) datosFaltantes.push("método de pago");
+    // Asegurarse que cliente exista
+cliente = cliente || {};
+
+// Inicializar campos vacíos si no existen
+cliente.nombre = cliente.nombre || "";
+cliente.comuna = cliente.comuna || "";
+cliente.direccion = cliente.direccion || "";
+cliente.punto_referencia = cliente.punto_referencia || "";
+cliente.tipo_vivienda = cliente.tipo_vivienda || "";
+cliente.metodo_pago = cliente.metodo_pago || "";
+
+const datosFaltantes = [];
+if (!cliente.nombre) datosFaltantes.push("nombre");
+if (!cliente.comuna) datosFaltantes.push("comuna");
+if (!cliente.direccion) datosFaltantes.push("dirección");
+if (!cliente.punto_referencia) datosFaltantes.push("punto de referencia");
+if (!cliente.tipo_vivienda) datosFaltantes.push("tipo de vivienda");
+if (!cliente.metodo_pago) datosFaltantes.push("método de pago");
+
 
     if (datosFaltantes.length > 0) {
       const siguiente = datosFaltantes[0];
