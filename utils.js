@@ -5,7 +5,7 @@ dotenv.config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Convierte nota de voz a texto
+// Convierte nota de voz a texto usando Whisper
 export async function transcribirAudio(urlAudio) {
   const response = await openai.audio.transcriptions.create({
     file: await axios.get(urlAudio, { responseType: "arraybuffer" }),
