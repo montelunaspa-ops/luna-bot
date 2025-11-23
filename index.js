@@ -59,7 +59,7 @@ app.post("/whatsapp", async (req, res) => {
     });
 
     // 6️⃣ Responder
-    res.json({ text: respuestaLuna });
+    res.json({ reply: respuestaLuna });
 
   } catch (error) {
     console.error("Error en /whatsapp:", error);
