@@ -14,53 +14,61 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-/* RESPUESTA LIBRE INTELIGENTE */
-async function responderPreguntaLibre(texto, responder) {
-  if (!texto || typeof texto !== "string") return false;
+/* ============================================================
+    🔹 FUNCION: RESPUESTA INTELIGENTE GENERAL
+============================================================ */
+async function responderConGPT(texto, cliente, historial = []) {
+  const prompt = generarPrompt(historial, texto, cliente);
 
-  const triggers = [
-    "precio","cuánto","cuanto","vale","tienes","hay",
-    "sabores","sabor","envío","envios","despacho","delivery",
-    "horario","pago","metodo","tamaño","medida","cuales","como es"
-  ];
-
-  const lower = texto.toLowerCase();
-  const esPregunta = triggers.some(t => lower.includes(t));
-  if (!esPregunta) return false;
-
-  const respuesta = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: `
+  try {
+    const gptResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: `
 Eres Luna, asistente de Delicias Monte Luna.
-Responde dudas sin romper el flujo.
-Catálogo oficial:
-- Queques 14 y 20 cm (arándanos, frambuesa, nuez)
-- Pan de Guayaba 40 cm
-- Alfajor de Maicena
-- Alfajores de Sabores
-- Muffins (chocolate, red velvet, chips chocolate, coco, manzana)
-- Queque de Piña
-- Queque de Vainilla
-- Queque de Chocolate
-- Queque Marmoleado
-- Queque de Maracuyá
-- Queque de Naranja
-- Queque con Manjar (piña, vainilla, chocolate, marmoleado, naranja, maracuyá)
-- Queque Premium de Vainilla
-- Donuts de Chocolate
-No inventes precios.
-      ` },
-      { role: "user", content: texto }
-    ],
-    temperature: 0.6
-  });
-
-  await responder(respuesta.choices[0].message.content);
-  return true;
+Habla de manera natural, amable y enfocada en ventas.
+Usa el historial del cliente.
+Responde preguntas de productos y sabores en cualquier momento.
+Ofrece opciones claras y guía el pedido.
+        `},
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.75
+    });
+    return gptResponse.choices?.[0]?.message?.content || "";
+  } catch {
+    return "Hubo un problema al generar tu respuesta 💛 Intenta nuevamente.";
+  }
 }
 
-/* CONFIRMACIÓN DE PEDIDO */
+/* ============================================================
+    🔹 DETECTAR DATOS FALTANTES
+============================================================ */
+const camposCliente = ["nombre", "direccion", "telefono_adicional"];
+async function gestionarDatosFaltantes(cliente, from, textoMensaje) {
+  // Inicializar campos vacíos
+  camposCliente.forEach(c => {
+    cliente[c] = cliente[c] || "";
+  });
+
+  for (let campo of camposCliente) {
+    if (!cliente[campo] && textoMensaje) {
+      // Guardar dato en la base de datos
+      const updateObj = {};
+      updateObj[campo] = textoMensaje;
+      await supabase.from("clientes_detallados").update(updateObj).eq("whatsapp", from);
+      cliente[campo] = textoMensaje;
+      return campo; // Retornar el campo que se acaba de completar
+    }
+  }
+
+  // Retornar null si no falta ningún dato
+  return null;
+}
+
+/* ============================================================
+    🔹 CONFIRMACIÓN DE PEDIDO
+============================================================ */
 function clienteConfirmoPedido(texto) {
   if (!texto || typeof texto !== "string") return false;
   texto = texto.toLowerCase();
@@ -69,27 +77,24 @@ function clienteConfirmoPedido(texto) {
     texto.includes("sí confirmo") ||
     texto.includes("si confirmo") ||
     texto.includes("acepto") ||
-    texto.includes("confirmado") ||
-    texto.includes("realizar pedido") ||
-    texto.includes("quiero mi pedido") ||
-    texto.includes("hagan el pedido")
+    texto.includes("confirmado")
   );
 }
 
-/* ENDPOINT PRUEBA */
+/* ============================================================
+    🔹 ENDPOINT DE PRUEBA
+============================================================ */
 app.get("/", (req, res) => {
   res.send("Servidor Luna funcionando correctamente ✨");
 });
 
-/* ENDPOINT PRINCIPAL /whatsapp */
+/* ============================================================
+    🔹 ENDPOINT PRINCIPAL /whatsapp
+============================================================ */
 app.post("/whatsapp", async (req, res) => {
   try {
     const { phone, message, type, mediaUrl } = req.body;
     const from = phone;
-
-    if (!message && !mediaUrl) {
-      return res.json({ reply: "¡Gracias por tu mensaje! 😊 Por ahora solo puedo responder texto. ¿En qué puedo ayudarte?" });
-    }
 
     let textoMensaje = message || "";
 
@@ -98,7 +103,7 @@ app.post("/whatsapp", async (req, res) => {
       catch { textoMensaje = "[Nota de voz no entendida]"; }
     }
 
-    /* Buscar o crear cliente */
+    // 1️⃣ Buscar o crear cliente
     let { data: cliente } = await supabase
       .from("clientes_detallados")
       .select("*")
@@ -115,84 +120,65 @@ app.post("/whatsapp", async (req, res) => {
       clienteNuevo = true;
     }
 
-    /* Mensaje de bienvenida para cliente nuevo */
-    if (clienteNuevo) {
-      return res.json({
-        reply: `¡Hola! 👋 Soy Luna, tu asistente de Delicias Monte Luna.\nEstoy aquí para ayudarte con tus pedidos de queques, muffins, alfajores y más. 💛`
-      });
-    }
-
-    /* Confirmación de pedido */
+    // 2️⃣ Confirmación de pedido
     if (clienteConfirmoPedido(textoMensaje)) {
+      // Guardar pedido
       await supabase.from("pedidos").insert({
         whatsapp: from,
         confirmado: true
       });
-      return res.json({ reply: "¡Pedido confirmado con éxito! Gracias por preferir Delicias Monte Luna ❤️✨\n\n**✅**" });
+
+      return res.json({
+        reply: "¡Pedido confirmado con éxito! Gracias por preferir Delicias Monte Luna ❤️✨\n✅ Tu pedido será entregado al día siguiente (excepto domingos)."
+      });
     }
 
-    /* Respuesta libre inteligente */
-    const respondida = await responderPreguntaLibre(textoMensaje, async msg => {
-      return res.json({ reply: msg });
-    });
-    if (respondida) return;
-
-    /* Historial */
+    // 3️⃣ Historial del cliente
     const { data: historial } = await supabase
       .from("historial")
       .select("*")
       .eq("whatsapp", from);
 
-    /* Datos faltantes */
-    cliente = cliente || {};
-    cliente.nombre = cliente.nombre || "";
-    cliente.comuna = cliente.comuna || "";
-    cliente.direccion = cliente.direccion || "";
-    cliente.punto_referencia = cliente.punto_referencia || "";
-    cliente.tipo_vivienda = cliente.tipo_vivienda || "";
-    cliente.metodo_pago = cliente.metodo_pago || "";
+    // 4️⃣ Mensaje de bienvenida si es cliente nuevo
+    if (clienteNuevo) {
+      const bienvenida = `
+¡Hola! Soy Luna, tu asistente de Delicias Monte Luna ✨
+Nuestro catálogo incluye:
+- Queques 14 y 20 cm (arándanos, frambuesa, nuez)
+- Pan de Guayaba 40 cm
+- Alfajores (Maicena y Sabores)
+- Muffins: chocolate, red velvet, chips chocolate, coco, manzana
+- Queques con manjar o premium
+- Donuts de chocolate
 
-    const datosFaltantes = [];
-    if (!cliente.nombre) datosFaltantes.push("nombre");
-    if (!cliente.comuna) datosFaltantes.push("comuna");
-    if (!cliente.direccion) datosFaltantes.push("dirección");
-    if (!cliente.punto_referencia) datosFaltantes.push("punto de referencia");
-    if (!cliente.tipo_vivienda) datosFaltantes.push("tipo de vivienda");
-    if (!cliente.metodo_pago) datosFaltantes.push("método de pago");
-
-    if (datosFaltantes.length > 0) {
-      const siguiente = datosFaltantes[0];
-      return res.json({ reply: `Antes de avanzar, necesito tu **${siguiente}**.\n\n¿Podrías indicarme tu ${siguiente}? 💛` });
-    }
-
-    /* Generar prompt */
-    const prompt = generarPrompt(historial || [], textoMensaje, cliente);
-
-    /* Respuesta GPT */
-    let respuestaLuna = "";
-    try {
-      const gptResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "Eres Luna, asistente de Delicias Monte Luna. No repitas mensajes de bienvenida. Habla natural, amable y orientada a ventas. Usa el historial del cliente. Ofrece opciones claras y guía el pedido." },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.75
+¿Qué deseas pedir hoy? 💛
+      `;
+      // Guardar el mensaje en historial
+      await supabase.from("historial").insert({
+        whatsapp: from,
+        mensaje_cliente: textoMensaje,
+        respuesta_luna: bienvenida
       });
-      respuestaLuna = gptResponse.choices?.[0]?.message?.content;
-    } catch {
-      respuestaLuna = "Hubo un problema al generar tu respuesta 💛 Intenta nuevamente.";
+      return res.json({ reply: bienvenida });
     }
 
-    /* Guardar historial */
+    // 5️⃣ Gestionar datos faltantes
+    const campoFaltante = await gestionarDatosFaltantes(cliente, from, textoMensaje);
+    if (campoFaltante) {
+      return res.json({ reply: `Antes de continuar, necesito tu **${campoFaltante}**. 💛` });
+    }
+
+    // 6️⃣ Respuesta GPT general
+    const respuestaGPT = await responderConGPT(textoMensaje, cliente, historial || []);
+
+    // Guardar historial
     await supabase.from("historial").insert({
       whatsapp: from,
       mensaje_cliente: textoMensaje,
-      respuesta_luna: respuestaLuna
+      respuesta_luna: respuestaGPT
     });
 
-    /* Responder */
-    return res.json({ reply: respuestaLuna || "No pude procesar tu mensaje, intenta nuevamente 💛" });
+    return res.json({ reply: respuestaGPT });
 
   } catch (e) {
     console.error("Error en /whatsapp:", e);
@@ -200,6 +186,8 @@ app.post("/whatsapp", async (req, res) => {
   }
 });
 
-/* PUERTO */
+/* ============================================================
+    🔹 PUERTO
+============================================================ */
 const PORT = parseInt(process.env.PORT) || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor Luna arriba en puerto ${PORT}`));
