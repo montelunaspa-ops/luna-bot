@@ -1,18 +1,29 @@
-export function generarPrompt(historial, mensaje, cliente) {
-  let historialStr = historial.map(h => `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}`).join("\n");
+export function generarPrompt(historial, mensajeCliente, cliente) {
+  // Formatear historial
+  let historialTexto = "";
+  if (historial && historial.length > 0) {
+    historial.forEach(h => {
+      historialTexto += `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}\n`;
+    });
+  }
+
+  // Datos del cliente
+  const datosCliente = `
+Nombre: ${cliente.nombre || "no proporcionado"}
+Dirección: ${cliente.direccion || "no proporcionada"}
+Teléfono adicional: ${cliente.telefono_adicional || "no proporcionado"}
+  `;
+
   return `
 Historial del cliente:
-${historialStr || "No hay historial"}
+${historialTexto}
 
 Datos del cliente:
-Nombre: ${cliente.nombre}
-Comuna: ${cliente.comuna}
-Dirección: ${cliente.direccion}
-Punto de referencia: ${cliente.punto_referencia}
-Tipo de vivienda: ${cliente.tipo_vivienda}
-Método de pago: ${cliente.metodo_pago}
+${datosCliente}
 
-Mensaje actual:
-${mensaje}
+Pregunta o mensaje actual del cliente:
+${mensajeCliente}
+
+Responde de manera natural, amable, orientada a ventas, guiando el pedido y ofreciendo opciones claras.
 `;
 }
