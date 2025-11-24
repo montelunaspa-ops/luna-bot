@@ -8,6 +8,32 @@ import { generarPrompt } from "./prompts.js";
 import { transcribirAudio } from "./utils.js";
 import OpenAI from "openai";
 
+// ⭐ NUEVO — Importar el cargador del bucket
+import { getLunaRules } from "./lunaRules.js";
+
+// ⭐ NUEVO — Variable en memoria donde se guardan las reglas
+let LUNA_RULES = "";
+
+/* ========= RECARGA AUTOMÁTICA CADA 60s ========= */
+setInterval(async () => {
+  try {
+    LUNA_RULES = await getLunaRules();
+    console.log("♻️ Reglas de Luna recargadas automáticamente");
+  } catch (e) {
+    console.log("⚠️ Error recargando reglas de Luna:", e.message);
+  }
+}, 60000);
+
+/* ========= CARGA INICIAL AL ARRANCAR ========= */
+(async () => {
+  try {
+    LUNA_RULES = await getLunaRules();
+    console.log("📥 Reglas de Luna cargadas al iniciar el servidor");
+  } catch (e) {
+    console.log("⚠️ Error al cargar reglas de Luna en inicio:", e.message);
+  }
+})();
+
 const app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -16,7 +42,15 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /* RESPUESTA INTELIGENTE GENERAL */
 async function responderConGPT(texto, cliente, historial = []) {
-  const prompt = generarPrompt(historial, texto, cliente);
+
+  // ⭐ NUEVO — añadir luna rules al prompt
+  const prompt = `
+REGLAS DEL SISTEMA (LUNA RULES):
+${LUNA_RULES}
+
+-------------------------------
+${generarPrompt(historial, texto, cliente)}
+  `;
 
   try {
     const gptResponse = await openai.chat.completions.create({
@@ -179,8 +213,7 @@ Puedes realizar tu pedido fácilmente por la página www.monteluna.cl o por What
 - Arándanos
 - Rectangular de 20 cm
 - Precio: 3.000
-- Oferta: 4 unidades por $10.000]
-
+- Oferta: 4 unidades por $10.000
 
 Recuerda que el despacho es gratuito por compras mayores a 14.990. Si no, tiene un costo de 2.400. Las entregas se realizan al día siguiente de realizar el pedido, excepto los domingos.
 
