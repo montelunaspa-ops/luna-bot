@@ -1,24 +1,18 @@
 export function generarPrompt(historial, mensaje, cliente) {
-  let historialTexto = historial
-    .map(
-      h => `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}`
-    )
-    .join("\n");
-
+  let historialStr = historial.map(h => `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}`).join("\n");
   return `
 Historial del cliente:
-${historialTexto || "Sin historial previo."}
+${historialStr || "No hay historial"}
 
 Datos del cliente:
-Nombre: ${cliente?.nombre || "N/A"}
-Comuna: ${cliente?.comuna || "N/A"}
-Dirección: ${cliente?.direccion || "N/A"}
-Punto de referencia: ${cliente?.punto_referencia || "N/A"}
-Tipo de vivienda: ${cliente?.tipo_vivienda || "N/A"}
-Método de pago: ${cliente?.metodo_pago || "N/A"}
+Nombre: ${cliente.nombre}
+Comuna: ${cliente.comuna}
+Dirección: ${cliente.direccion}
+Punto de referencia: ${cliente.punto_referencia}
+Tipo de vivienda: ${cliente.tipo_vivienda}
+Método de pago: ${cliente.metodo_pago}
 
-Mensaje actual del cliente:
+Mensaje actual:
 ${mensaje}
-
-Responde de forma amable, natural y orientada a ventas, guiando el pedido.`;
+`;
 }
