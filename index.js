@@ -14,9 +14,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-/* ============================================================
-    🔹 FUNCION: RESPUESTA INTELIGENTE GENERAL
-============================================================ */
+/* RESPUESTA INTELIGENTE GENERAL */
 async function responderConGPT(texto, cliente, historial = []) {
   const prompt = generarPrompt(historial, texto, cliente);
 
@@ -41,34 +39,26 @@ Ofrece opciones claras y guía el pedido.
   }
 }
 
-/* ============================================================
-    🔹 DETECTAR DATOS FALTANTES
-============================================================ */
+/* DETECTAR DATOS FALTANTES */
 const camposCliente = ["nombre", "direccion", "telefono_adicional"];
 async function gestionarDatosFaltantes(cliente, from, textoMensaje) {
-  // Inicializar campos vacíos
   camposCliente.forEach(c => {
     cliente[c] = cliente[c] || "";
   });
 
   for (let campo of camposCliente) {
     if (!cliente[campo] && textoMensaje) {
-      // Guardar dato en la base de datos
       const updateObj = {};
       updateObj[campo] = textoMensaje;
       await supabase.from("clientes_detallados").update(updateObj).eq("whatsapp", from);
       cliente[campo] = textoMensaje;
-      return campo; // Retornar el campo que se acaba de completar
+      return campo;
     }
   }
-
-  // Retornar null si no falta ningún dato
   return null;
 }
 
-/* ============================================================
-    🔹 CONFIRMACIÓN DE PEDIDO
-============================================================ */
+/* CONFIRMACIÓN DE PEDIDO */
 function clienteConfirmoPedido(texto) {
   if (!texto || typeof texto !== "string") return false;
   texto = texto.toLowerCase();
@@ -81,16 +71,12 @@ function clienteConfirmoPedido(texto) {
   );
 }
 
-/* ============================================================
-    🔹 ENDPOINT DE PRUEBA
-============================================================ */
+/* ENDPOINT DE PRUEBA */
 app.get("/", (req, res) => {
   res.send("Servidor Luna funcionando correctamente ✨");
 });
 
-/* ============================================================
-    🔹 ENDPOINT PRINCIPAL /whatsapp
-============================================================ */
+/* ENDPOINT PRINCIPAL /whatsapp */
 app.post("/whatsapp", async (req, res) => {
   try {
     const { phone, message, type, mediaUrl } = req.body;
@@ -103,7 +89,7 @@ app.post("/whatsapp", async (req, res) => {
       catch { textoMensaje = "[Nota de voz no entendida]"; }
     }
 
-    // 1️⃣ Buscar o crear cliente
+    /* Buscar o crear cliente */
     let { data: cliente } = await supabase
       .from("clientes_detallados")
       .select("*")
@@ -120,26 +106,24 @@ app.post("/whatsapp", async (req, res) => {
       clienteNuevo = true;
     }
 
-    // 2️⃣ Confirmación de pedido
+    /* Confirmación de pedido */
     if (clienteConfirmoPedido(textoMensaje)) {
-      // Guardar pedido
       await supabase.from("pedidos").insert({
         whatsapp: from,
         confirmado: true
       });
-
       return res.json({
         reply: "¡Pedido confirmado con éxito! Gracias por preferir Delicias Monte Luna ❤️✨\n✅ Tu pedido será entregado al día siguiente (excepto domingos)."
       });
     }
 
-    // 3️⃣ Historial del cliente
+    /* Historial */
     const { data: historial } = await supabase
       .from("historial")
       .select("*")
       .eq("whatsapp", from);
 
-    // 4️⃣ Mensaje de bienvenida si es cliente nuevo
+    /* Mensaje de bienvenida */
     if (clienteNuevo) {
       const bienvenida = `
 ¡Hola! Soy Luna, tu asistente de Delicias Monte Luna ✨
@@ -153,7 +137,6 @@ Nuestro catálogo incluye:
 
 ¿Qué deseas pedir hoy? 💛
       `;
-      // Guardar el mensaje en historial
       await supabase.from("historial").insert({
         whatsapp: from,
         mensaje_cliente: textoMensaje,
@@ -162,16 +145,14 @@ Nuestro catálogo incluye:
       return res.json({ reply: bienvenida });
     }
 
-    // 5️⃣ Gestionar datos faltantes
+    /* Datos faltantes */
     const campoFaltante = await gestionarDatosFaltantes(cliente, from, textoMensaje);
     if (campoFaltante) {
       return res.json({ reply: `Antes de continuar, necesito tu **${campoFaltante}**. 💛` });
     }
 
-    // 6️⃣ Respuesta GPT general
+    /* Respuesta GPT general */
     const respuestaGPT = await responderConGPT(textoMensaje, cliente, historial || []);
-
-    // Guardar historial
     await supabase.from("historial").insert({
       whatsapp: from,
       mensaje_cliente: textoMensaje,
@@ -186,8 +167,6 @@ Nuestro catálogo incluye:
   }
 });
 
-/* ============================================================
-    🔹 PUERTO
-============================================================ */
+/* PUERTO */
 const PORT = parseInt(process.env.PORT) || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor Luna arriba en puerto ${PORT}`));
