@@ -127,13 +127,62 @@ app.post("/whatsapp", async (req, res) => {
     if (clienteNuevo) {
       const bienvenida = `
 ¡Hola! Soy Luna, tu asistente de Delicias Monte Luna ✨
-Nuestro catálogo incluye:
-- Queques 14 y 20 cm (arándanos, frambuesa, nuez)
-- Pan de Guayaba 40 cm
-- Alfajores (Maicena y Sabores)
-- Muffins: chocolate, red velvet, chips chocolate, coco, manzana
-- Queques con manjar o premium
-- Donuts de chocolate
+Catálogo:
+Puedes realizar tu pedido fácilmente por la página www.monteluna.cl o por WhatsApp.
+
+🍰 Queques Peruanos de 28 cm
+- Sabores disponibles:
+  - Chocolate
+  - Vainilla
+  - Marmoleado
+  - Piña
+  - Naranja
+  - Maracuyá
+- Porciones: 14 o 16, o sin cortar
+- Precio: 8.500
+
+🍪 Galletas y Delicias en Bandeja de 20 Unidades
+- Tipos de galletas:
+  - De Manjar
+  - Alemana
+  - Giro Coco
+  - Almejitas
+  - Lengua de Gato
+  - Cocadas
+  - Alfajorcito
+  - Cachitos Manjar
+- Precio: 4.000
+
+🧁 Muffins
+- Muffin Chips
+  - Cantidad: 6 Unidades (Empaque individual, sin bandeja)
+  - Precio: 3.500
+
+- Muffins Premium Sabores Surtidos
+  - Incluye: 1 Chocolate, 1 Red Velvet, 1 Arándano, 1 Coco, 2 Chips
+  - Cantidad: Bandeja por 6 Unidades
+  - Precio: 5.000
+
+🌟 Alfajores de Maicena
+- Cantidad: Bandeja por 12 Unidades
+- Tamaño: 8-9 cm
+- Precio: 6.000
+
+🥐 Cachitos Premium con Manjar
+- Cantidad: Bandeja por 10 Unidades
+- Tamaño: 11-13 cm
+- Precio: 6.000
+
+📦 Queque Artesanal
+- Vainilla Chips
+- Manzana
+- Arándanos
+- Rectangular de 20 cm
+- Precio: 3.000
+- Oferta: 4 unidades por $10.000]
+
+
+Recuerda que el despacho es gratuito por compras mayores a 14.990. Si no, tiene un costo de 2.400. Las entregas se realizan al día siguiente de realizar el pedido, excepto los domingos.
 
 ¿Qué deseas pedir hoy? 💛
       `;
