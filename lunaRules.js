@@ -4,13 +4,13 @@ import { supabase } from "./supabase.js";
 let cachedRules = null;
 let lastLoadTime = 0;
 
-// Cargar reglas desde Supabase Storage
-export async function getLunaRules() {
+// Esta es la función que tu index.js espera usar
+export async function obtenerReglas() {
   try {
-    const now = Date.now();
+    const ahora = Date.now();
 
     // Recarga automática cada 2 minutos
-    if (cachedRules && now - lastLoadTime < 120000) {
+    if (cachedRules && ahora - lastLoadTime < 120000) {
       return cachedRules;
     }
 
@@ -28,7 +28,7 @@ export async function getLunaRules() {
     const text = await data.text();
 
     cachedRules = text;
-    lastLoadTime = now;
+    lastLoadTime = ahora;
 
     console.log("✅ Reglas cargadas correctamente");
     return text;
