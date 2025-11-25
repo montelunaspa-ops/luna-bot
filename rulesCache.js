@@ -1,15 +1,15 @@
-let reglasCache = null;
-let ultimaCarga = 0;
+let reglas = null;
+let cargado = null;
 
-export function guardarReglas(texto) {
-  reglasCache = texto;
-  ultimaCarga = Date.now();
+export function guardarReglas(contenido) {
+  reglas = contenido;
+  cargado = Date.now();
 }
 
 export function obtenerReglasCache() {
-  return reglasCache;
+  return reglas;
 }
 
 export function obtenerMomentoCarga() {
-  return ultimaCarga;
+  return cargado;
 }
