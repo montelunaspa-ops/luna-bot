@@ -6,34 +6,9 @@ dotenv.config();
 import { supabase } from "./supabase.js";
 import { generarPrompt } from "./prompts.js";
 import { transcribirAudio } from "./utils.js";
-import { obtenerReglas } from "./lunaRules.js";
+import { obtenerReglas } from "./lunaRules.js";   // ← CORRECCIÓN
+
 import OpenAI from "openai";
-
-// ⭐ NUEVO — Importar el cargador del bucket
-import { getLunaRules } from "./lunaRules.js";
-
-// ⭐ NUEVO — Variable en memoria donde se guardan las reglas
-let LUNA_RULES = "";
-
-/* ========= RECARGA AUTOMÁTICA CADA 60s ========= */
-setInterval(async () => {
-  try {
-    LUNA_RULES = await getLunaRules();
-    console.log("♻️ Reglas de Luna recargadas automáticamente");
-  } catch (e) {
-    console.log("⚠️ Error recargando reglas de Luna:", e.message);
-  }
-}, 60000);
-
-/* ========= CARGA INICIAL AL ARRANCAR ========= */
-(async () => {
-  try {
-    LUNA_RULES = await getLunaRules();
-    console.log("📥 Reglas de Luna cargadas al iniciar el servidor");
-  } catch (e) {
-    console.log("⚠️ Error al cargar reglas de Luna en inicio:", e.message);
-  }
-})();
 
 const app = express();
 app.use(bodyParser.json());
@@ -43,23 +18,21 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /* RESPUESTA INTELIGENTE GENERAL */
 async function responderConGPT(texto, cliente, historial = []) {
-
-  // ⭐ NUEVO — añadir luna rules al prompt
-  const prompt = `
-REGLAS DEL SISTEMA (LUNA RULES):
-${LUNA_RULES}
-
--------------------------------
-${generarPrompt(historial, texto, cliente)}
-  `;
+  const reglas = await obtenerReglas(); // ← carga reglas desde bucket
+  const prompt = generarPrompt(historial, texto, cliente, reglas);
 
   try {
-    const reglas = await obtenerReglas();
     const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: rules
-        },
+        { role: "system", content: `
+Eres Luna, asistente de Delicias Monte Luna.
+Habla de manera natural, amable y enfocada en ventas.
+Usa el historial del cliente.
+Usa siempre las reglas del archivo subido.
+Responde preguntas de productos y sabores en cualquier momento.
+Ofrece opciones claras y guía el pedido.
+`},
         { role: "user", content: prompt }
       ],
       temperature: 0.75
@@ -211,6 +184,7 @@ Puedes realizar tu pedido fácilmente por la página www.monteluna.cl o por What
 - Rectangular de 20 cm
 - Precio: 3.000
 - Oferta: 4 unidades por $10.000
+
 
 Recuerda que el despacho es gratuito por compras mayores a 14.990. Si no, tiene un costo de 2.400. Las entregas se realizan al día siguiente de realizar el pedido, excepto los domingos.
 
