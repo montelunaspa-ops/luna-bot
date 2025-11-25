@@ -6,6 +6,7 @@ dotenv.config();
 import { supabase } from "./supabase.js";
 import { generarPrompt } from "./prompts.js";
 import { transcribirAudio } from "./utils.js";
+import { obtenerReglas } from "./lunaRules.js";
 import OpenAI from "openai";
 
 // ⭐ NUEVO — Importar el cargador del bucket
@@ -53,16 +54,12 @@ ${generarPrompt(historial, texto, cliente)}
   `;
 
   try {
+    const reglas = await obtenerReglas();
     const gptResponse = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: `
-Eres Luna, asistente de Delicias Monte Luna.
-Habla de manera natural, amable y enfocada en ventas.
-Usa el historial del cliente.
-Responde preguntas de productos y sabores en cualquier momento.
-Ofrece opciones claras y guía el pedido.
-        `},
+        { role: "system", content: rules
+        },
         { role: "user", content: prompt }
       ],
       temperature: 0.75
