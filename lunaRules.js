@@ -1,33 +1,33 @@
-// lunaRules.js
 import { supabase } from "./supabase.js";
+import { guardarReglas, obtenerReglasCache, obtenerMomentoCarga } from "./rulesCache.js";
 
-let cachedRules = null;
-let lastLoad = 0;
-const AUTO_RELOAD = 120000; // 2 minutos
+const RELOAD_MS = 60000; // 1 minuto
 
-export async function obtenerReglas() {
+export async function cargarReglas(force = false) {
+  const ultima = obtenerMomentoCarga();
   const ahora = Date.now();
 
-  // Usar versión cacheada si está fresca
-  if (cachedRules && ahora - lastLoad < AUTO_RELOAD) {
-    return cachedRules;
+  if (!force && ultima && ahora - ultima < RELOAD_MS && obtenerReglasCache()) {
+    return obtenerReglasCache();
   }
 
-  console.log("🔄 Descargando reglas desde la TABLA luna_rules…");
+  console.log("🔄 Cargando reglas desde tabla luna_rules…");
 
   const { data, error } = await supabase
     .from("luna_rules")
     .select("contenido")
+    .eq("id", 1)
     .single();
 
   if (error) {
-    console.error("❌ Error al leer reglas desde la tabla:", error);
-    return cachedRules || "Reglas no disponibles.";
+    console.error("❌ Error al leer reglas:", error);
+    return obtenerReglasCache() || "Reglas no disponibles.";
   }
 
-  cachedRules = data.contenido;
-  lastLoad = ahora;
+  guardarReglas(data.contenido);
 
-  console.log("✅ Reglas cargadas correctamente desde la tabla");
-  return cachedRules;
+  console.log("✅ Reglas cargadas correctamente");
+  return data.contenido;
 }
+
+setInterval(() => cargarReglas(true), RELOAD_MS);
