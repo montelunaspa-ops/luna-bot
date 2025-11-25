@@ -1,26 +1,43 @@
+// utils.js
 import OpenAI from "openai";
-import fetch from "node-fetch";
 import fs from "fs";
 import path from "path";
-
 import dotenv from "dotenv";
+
 dotenv.config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Función para transcribir audio
+// Transcribe una nota de voz desde una URL (WhatsAuto nos entrega mediaUrl)
 export async function transcribirAudio(mediaUrl) {
-  const response = await fetch(mediaUrl);
-  const buffer = Buffer.from(await response.arrayBuffer());
+  try {
+    console.log("[AUDIO] Descargando audio desde:", mediaUrl);
 
-  const tmpPath = path.join("/tmp", "voz.mp3");
-  fs.writeFileSync(tmpPath, buffer);
+    const response = await fetch(mediaUrl);
+    if (!response.ok) {
+      console.error("[AUDIO] Error HTTP al descargar audio:", response.status, response.statusText);
+      throw new Error("No se pudo descargar el audio");
+    }
 
-  const transcription = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(tmpPath),
-    model: "whisper-1"
-  });
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
-  fs.unlinkSync(tmpPath);
-  return transcription.text;
+    const tmpPath = path.join("/tmp", `voz_${Date.now()}.mp3`);
+    fs.writeFileSync(tmpPath, buffer);
+
+    console.log("[AUDIO] Archivo guardado temporalmente en:", tmpPath);
+
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(tmpPath),
+      model: "whisper-1"
+    });
+
+    fs.unlinkSync(tmpPath);
+    console.log("[AUDIO] Transcripción completa:", transcription.text);
+
+    return transcription.text;
+  } catch (error) {
+    console.error("[AUDIO] Error transcribiendo audio:", error);
+    throw error;
+  }
 }
