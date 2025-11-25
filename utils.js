@@ -6,7 +6,7 @@ import path from "path";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function transcribirAudio(mediaUrl) {
-  console.log("🎤 Descargando audio…");
+  console.log("🎙 Descargando audio…");
 
   const response = await fetch(mediaUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
@@ -14,7 +14,7 @@ export async function transcribirAudio(mediaUrl) {
   const tmpPath = path.join("/tmp", "voz.mp3");
   fs.writeFileSync(tmpPath, buffer);
 
-  console.log("🎧 Enviando a Whisper…");
+  console.log("🔊 Transcribiendo…");
 
   const transcription = await openai.audio.transcriptions.create({
     file: fs.createReadStream(tmpPath),
@@ -22,8 +22,6 @@ export async function transcribirAudio(mediaUrl) {
   });
 
   fs.unlinkSync(tmpPath);
-
-  console.log("📝 Transcripción:", transcription.text);
 
   return transcription.text;
 }
