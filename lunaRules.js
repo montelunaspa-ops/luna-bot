@@ -1,34 +1,40 @@
 // lunaRules.js
 import { supabase } from "./supabase.js";
 
-let reglasCache = null;
-let ultimaCarga = 0;
-const INTERVALO_MS = 5 * 60 * 1000; // 5 minutos
+let cachedRules = null;
+let lastLoadTime = 0;
 
-export async function obtenerReglas() {
-  const ahora = Date.now();
+// Cargar reglas desde Supabase Storage
+export async function getLunaRules() {
+  try {
+    const now = Date.now();
 
-  // Si han pasado menos de 5 minutos, usar cache
-  if (reglasCache && (ahora - ultimaCarga < INTERVALO_MS)) {
-    return reglasCache;
+    // Recarga automática cada 2 minutos
+    if (cachedRules && now - lastLoadTime < 120000) {
+      return cachedRules;
+    }
+
+    console.log("🔄 Cargando reglas desde Supabase...");
+
+    const { data, error } = await supabase.storage
+      .from("luna-rules")
+      .download("luna rules.txt"); // archivo en la raíz del bucket
+
+    if (error) {
+      console.error("❌ Error cargando reglas:", error);
+      return cachedRules ?? "ERROR: No se pudieron cargar las reglas.";
+    }
+
+    const text = await data.text();
+
+    cachedRules = text;
+    lastLoadTime = now;
+
+    console.log("✅ Reglas cargadas correctamente");
+    return text;
+
+  } catch (err) {
+    console.error("❌ Error inesperado cargando reglas:", err);
+    return cachedRules ?? "ERROR: No se pudieron cargar las reglas.";
   }
-
-  // Cargar desde Supabase
-  const { data, error } = await supabase
-    .storage
-    .from("luna-rules")
-    .download("luna rules.txt");
-
-  if (error) {
-    console.error("❌ Error cargando reglas:", error);
-    return reglasCache || ""; // fallback
-  }
-
-  const texto = await data.text();
-
-  reglasCache = texto;
-  ultimaCarga = ahora;
-
-  console.log("✔ Reglas cargadas desde Supabase");
-  return texto;
 }
