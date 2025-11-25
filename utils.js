@@ -3,9 +3,6 @@ import fetch from "node-fetch";
 import fs from "fs";
 import path from "path";
 
-import dotenv from "dotenv";
-dotenv.config();
-
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function transcribirAudio(mediaUrl) {
@@ -17,7 +14,7 @@ export async function transcribirAudio(mediaUrl) {
   const tmpPath = path.join("/tmp", "voz.mp3");
   fs.writeFileSync(tmpPath, buffer);
 
-  console.log("🎧 Procesando audio con Whisper…");
+  console.log("🎧 Enviando a Whisper…");
 
   const transcription = await openai.audio.transcriptions.create({
     file: fs.createReadStream(tmpPath),
@@ -26,7 +23,7 @@ export async function transcribirAudio(mediaUrl) {
 
   fs.unlinkSync(tmpPath);
 
-  console.log("📝 Transcripción obtenida:", transcription.text);
+  console.log("📝 Transcripción:", transcription.text);
 
   return transcription.text;
 }
