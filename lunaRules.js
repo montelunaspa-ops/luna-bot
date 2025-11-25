@@ -2,39 +2,49 @@
 import { supabase } from "./supabase.js";
 
 let cachedRules = null;
-let lastLoadTime = 0;
+let lastLoaded = 0;
+const CACHE_MS = 60000; // 60 segundos
 
-// Esta es la función que tu index.js espera usar
+const FALLBACK_RULES = `
+Eres Luna, asistente de Delicias Monte Luna.
+Si no puedes cargar las reglas desde la base de datos, responde de forma segura:
+- No inventes precios.
+- No ofrezcas productos que no conozcas.
+- Indica que no puedes acceder a toda la información y sugiere escribir por WhatsApp a un humano.
+`;
+
+// Función principal que usa index.js
 export async function obtenerReglas() {
-  try {
-    const ahora = Date.now();
+  const ahora = Date.now();
 
-    // Recarga automática cada 2 minutos
-    if (cachedRules && ahora - lastLoadTime < 120000) {
-      return cachedRules;
-    }
-
-    console.log("🔄 Cargando reglas desde Supabase...");
-
-    const { data, error } = await supabase.storage
-      .from("luna-rules")
-      .download("luna rules.txt"); // archivo en la raíz del bucket
-
-    if (error) {
-      console.error("❌ Error cargando reglas:", error);
-      return cachedRules ?? "ERROR: No se pudieron cargar las reglas.";
-    }
-
-    const text = await data.text();
-
-    cachedRules = text;
-    lastLoadTime = ahora;
-
-    console.log("✅ Reglas cargadas correctamente");
-    return text;
-
-  } catch (err) {
-    console.error("❌ Error inesperado cargando reglas:", err);
-    return cachedRules ?? "ERROR: No se pudieron cargar las reglas.";
+  // Si ya tenemos reglas recientes en memoria → usamos cache
+  if (cachedRules && ahora - lastLoaded < CACHE_MS) {
+    console.log("[LUNA RULES] Usando reglas cacheadas.");
+    return cachedRules;
   }
+
+  console.log("[LUNA RULES] Consultando reglas en tabla 'luna_rules'...");
+
+  const { data, error } = await supabase
+    .from("luna_rules")
+    .select("contenido")
+    .order("actualizado", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[LUNA RULES] Error al obtener reglas:", error.message);
+    return cachedRules || FALLBACK_RULES;
+  }
+
+  if (!data || !data.contenido || data.contenido.trim().length < 20) {
+    console.error("[LUNA RULES] Reglas vacías o muy cortas en DB. Usando fallback.");
+    return cachedRules || FALLBACK_RULES;
+  }
+
+  cachedRules = data.contenido;
+  lastLoaded = ahora;
+
+  console.log("[LUNA RULES] Reglas cargadas correctamente. Longitud:", cachedRules.length);
+  return cachedRules;
 }
