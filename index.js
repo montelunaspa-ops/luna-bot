@@ -6,7 +6,7 @@ dotenv.config();
 import { supabase } from "./supabase.js";
 import { generarPrompt } from "./prompts.js";
 import { transcribirAudio } from "./utils.js";
-import { obtenerReglas } from "./lunaRules.js";
+import { cargarReglas } from "./rulesLoader.js";
 import OpenAI from "openai";
 
 const app = express();
@@ -15,13 +15,13 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-/* -----------------------------------------------------
-   🧠 FUNCIÓN: GPT con reglas externas
------------------------------------------------------ */
+/* ============================================================
+   🧠 GPT CON REGLAS EXTERNAS
+============================================================ */
 async function responderConGPT(texto, cliente, historial = []) {
-  console.log("🔎 Enviando mensaje a GPT…");
+  console.log("🔎 [GPT] Preparando prompt…");
 
-  const reglas = await obtenerReglas(); 
+  const reglas = await cargarReglas();
   const prompt = generarPrompt(historial, texto, cliente, reglas);
 
   try {
@@ -31,43 +31,43 @@ async function responderConGPT(texto, cliente, historial = []) {
         { role: "system", content: reglas },
         { role: "user", content: prompt }
       ],
-      temperature: 0.75
+      temperature: 0.7
     });
 
     return gptResponse.choices?.[0]?.message?.content || "";
   } catch (e) {
-    console.error("❌ Error en GPT:", e);
-    return "Hubo un problema al generar tu respuesta 💛 Intenta nuevamente.";
+    console.error("❌ [GPT] Error:", e);
+    return "Ocurrió un problema al generar tu respuesta 💛";
   }
 }
 
-/* -----------------------------------------------------
-  📌 DETECTAR CONFIRMACIÓN
------------------------------------------------------ */
+/* ============================================================
+   ✔ DETECTAR CONFIRMACIÓN DE PEDIDO
+============================================================ */
 function clienteConfirmoPedido(texto) {
-  if (!texto || typeof texto !== "string") return false;
-
+  if (!texto) return false;
   texto = texto.toLowerCase();
 
   return (
     texto.includes("confirmo") ||
-    texto.includes("sí confirmo") ||
     texto.includes("si confirmo") ||
+    texto.includes("sí confirmo") ||
     texto.includes("acepto") ||
+    texto.includes("está bien") ||
     texto.includes("confirmado") ||
     texto.includes("realizar pedido")
   );
 }
 
-/* -----------------------------------------------------
-  📌 CAMPOS REQUERIDOS PARA DESPACHO
------------------------------------------------------ */
+/* ============================================================
+   ✔ CAMPOS REQUERIDOS PARA DESPACHO
+============================================================ */
 const camposCliente = ["nombre", "direccion", "comuna", "telefono_adicional"];
 
 async function gestionarDatosCliente(cliente, from, mensaje) {
   for (let campo of camposCliente) {
     if (!cliente[campo]) {
-      console.log(`🟡 Cliente debe entregar: ${campo}`);
+      console.log(`🟡 [CLIENTE] Falta el campo: ${campo}`);
 
       const updateObj = {};
       updateObj[campo] = mensaje;
@@ -83,31 +83,29 @@ async function gestionarDatosCliente(cliente, from, mensaje) {
   return null;
 }
 
-/* -----------------------------------------------------
-   📌 ENDPOINT ROOT
------------------------------------------------------ */
+/* ============================================================
+  🟦 ENDPOINT ROOT
+============================================================ */
 app.get("/", (req, res) => {
-  res.send("Luna bot funcionando correctamente ✨");
+  res.send("🌙 Luna Bot funcionando correctamente.");
 });
 
-/* -----------------------------------------------------
-   📌 ENDPOINT PRINCIPAL WHATSAPP
------------------------------------------------------ */
+/* ============================================================
+  🟨 ENDPOINT PRINCIPAL WHATSAPP
+============================================================ */
 app.post("/whatsapp", async (req, res) => {
-  console.log("📩 Request recibido:", req.body);
+  console.log("📥 [WEBHOOK] Mensaje recibido:", req.body);
 
   try {
     const { phone, message, type, mediaUrl } = req.body;
     const from = phone;
-
     let textoMensaje = message || "";
 
+    /* 🎤 VOZ → TEXTO */
     if (type === "voice" && mediaUrl) {
-      console.log("🎙 Recibida nota de voz. Transcribiendo…");
       try {
         textoMensaje = await transcribirAudio(mediaUrl);
-        console.log("📝 Texto transcrito:", textoMensaje);
-      } catch (e) {
+      } catch {
         textoMensaje = "[Nota de voz no entendida]";
       }
     }
@@ -129,12 +127,12 @@ app.post("/whatsapp", async (req, res) => {
         .select();
 
       cliente = nuevo.data?.[0];
-      console.log("🆕 Cliente nuevo detectado:", from);
+      console.log("🆕 [CLIENTE] Cliente nuevo:", from);
     }
 
-    /* 2️⃣ CONFIRMACIÓN DE PEDIDO */
+    /* 2️⃣ CONFIRMAR PEDIDO */
     if (clienteConfirmoPedido(textoMensaje)) {
-      console.log("🟢 Cliente confirmó el pedido. Guardando…");
+      console.log("🟢 [PEDIDO] Confirmado por el cliente.");
 
       await supabase.from("pedidos_completos").insert({
         nombre: cliente.nombre,
@@ -151,7 +149,7 @@ app.post("/whatsapp", async (req, res) => {
 
       return res.json({
         reply:
-          "¡Pedido confirmado con éxito! Gracias por preferir Delicias Monte Luna ❤️✨\n\n**✅ Tu pedido será entregado mañana (excepto domingos).**"
+          "¡Pedido confirmado con éxito! 🎉💛\n\nSerá entregado mañana (excepto domingos)."
       });
     }
 
@@ -163,21 +161,24 @@ app.post("/whatsapp", async (req, res) => {
 
     /* 4️⃣ BIENVENIDA */
     if (clienteNuevo) {
-      const reglas = await obtenerReglas();
+      const reglas = await cargarReglas();
+      const bienvenida = reglas.split("Catálogo:")[0];
 
-      return res.json({ reply: reglas.split("Catálogo:")[0] + "\n\n¿Qué deseas pedir hoy? 💛" });
-    }
-
-    /* 5️⃣ FALTAN DATOS */
-    const campoPendiente = await gestionarDatosCliente(cliente, from, textoMensaje);
-
-    if (campoPendiente) {
       return res.json({
-        reply: `Perfecto 💛 Ahora indícame tu **${campoPendiente}** para continuar.`
+        reply: bienvenida + "\n\n¿Qué deseas pedir hoy? 💛"
       });
     }
 
-    /* 6️⃣ GPT GENERAL */
+    /* 5️⃣ DATOS FALTANTES */
+    const campoPend = await gestionarDatosCliente(cliente, from, textoMensaje);
+
+    if (campoPend) {
+      return res.json({
+        reply: `Perfecto 💛 Ahora necesito tu **${campoPend}** para continuar.`
+      });
+    }
+
+    /* 6️⃣ GPT RESPUESTA GENERAL */
     const respuesta = await responderConGPT(textoMensaje, cliente, historial);
 
     await supabase.from("historial").insert({
@@ -186,15 +187,15 @@ app.post("/whatsapp", async (req, res) => {
       respuesta_luna: respuesta
     });
 
-    return res.json({ reply: respuesta });
+    res.json({ reply: respuesta });
   } catch (e) {
-    console.error("❌ Error general:", e);
-    return res.json({
-      reply: "Ocurrió un error inesperado 💛 Por favor intenta nuevamente."
+    console.error("❌ [ERROR GENERAL]", e);
+    res.json({
+      reply: "Ocurrió un error inesperado 💛 Intenta nuevamente."
     });
   }
 });
 
-/* SERVIDOR */
-const PORT = parseInt(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`🚀 Luna bot listo en puerto ${PORT}`));
+/* 🚀 SERVIDOR */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Luna Bot listo en puerto ${PORT}`));
