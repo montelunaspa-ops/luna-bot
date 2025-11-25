@@ -1,9 +1,9 @@
 export function generarPrompt(historial, mensajeCliente, cliente, reglas) {
-  let historialTexto = "";
+  let historialTxt = "";
 
   if (historial) {
     historial.forEach(h => {
-      historialTexto += `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}\n`;
+      historialTxt += `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}\n`;
     });
   }
 
@@ -18,11 +18,11 @@ DATOS DEL CLIENTE:
 - Teléfono adicional: ${cliente.telefono_adicional || "no proporcionado"}
 
 HISTORIAL:
-${historialTexto}
+${historialTxt}
 
-MENSAJE ACTUAL DEL CLIENTE:
+MENSAJE ACTUAL:
 ${mensajeCliente}
 
-RESPONDE COMO LUNA, DE FORMA NATURAL, AMABLE, FLUIDA Y CERRANDO VENTAS.
+RESPONDE COMO LUNA: natural, amable, con enfoque en ventas, clara y precisa.
 `;
 }
