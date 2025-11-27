@@ -1,40 +1,23 @@
-// =========================
-//      prompts.js
-// =========================
+import rules from "./rules.json" assert { type: "json" };
 
-export function generarPrompt(historial, mensajeCliente, cliente, reglas) {
-  let historialTexto = "";
-
-  if (historial && historial.length > 0) {
-    historial.forEach(h => {
-      historialTexto += `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}\n`;
-    });
-  }
-
+export function generarPrompt(historial, mensajeCliente, cliente) {
   return `
-REGLAS DEL NEGOCIO:
-${reglas}
+Eres Luna Bot de Delicias Monte Luna.
 
-DATOS DEL CLIENTE:
-- Nombre: ${cliente.nombre || "no proporcionado"}
-- Dirección: ${cliente.direccion || "no proporcionada"}
-- Comuna: ${cliente.comuna || "no proporcionada"}
-- Teléfono adicional: ${cliente.telefono_adicional || "no proporcionado"}
+REGLAS:
+- Responde corto y preciso.
+- Usa solo la información en rules.json.
+- No inventes precios ni productos.
+- Puedes contestar preguntas en cualquier momento.
+- Siempre continúa el flujo de venta.
+- Mantén tono amable.
 
-HISTORIAL:
-${historialTexto}
+CATÁLOGO:
+${JSON.stringify(rules.catalogo)}
 
-MENSAJE ACTUAL DEL CLIENTE:
-${mensajeCliente}
+MENSAJE DEL CLIENTE:
+"${mensajeCliente}"
 
-RESPONDE COMO *LUNA*:
-- Muy amable
-- Fluida
-- Profesional
-- Enfocada en ventas
-- Ofrece opciones claras
-- Sigue estrictamente las reglas del archivo
-- Guía el pedido paso a paso
-- Cuando el pedido esté claro, genera un **RESUMEN DEL PEDIDO**.
+RESPONDE SOLO EL MENSAJE FINAL QUE VA PARA EL CLIENTE.
   `;
 }
