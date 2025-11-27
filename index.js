@@ -1,4 +1,3 @@
-// index.js
 import express from "express";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
@@ -6,324 +5,216 @@ dotenv.config();
 
 import { supabase } from "./supabase.js";
 import { transcribirAudio } from "./audio.js";
-import { responderConGPT } from "./gpt.js";
-import {
-  esNombre,
-  esDireccion,
+import { responderGPT } from "./gpt.js";
+import rules from "./rules.json" assert { type: "json" };
+import { 
+  esNombre, 
+  esDireccion, 
   esTelefono,
   validarComuna,
-  detectarProductos,
-  construirTextoResumen
+  detectarProducto,
+  calcularResumen
 } from "./helpers.js";
-import { RULES } from "./rules.js";
-import { CATALOGO } from "./catalogo.js";
 
 const app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-/* ======================================================
-   0. ENDPOINT PRINCIPAL PARA WHATAUTO
-   Recibe: { phone, message, type, mediaUrl }
-====================================================== */
+/* ----------------------------------------
+   0️⃣  ENDPOINT ROOT
+----------------------------------------- */
+app.get("/", (req, res) => {
+  res.send("🚀 Luna Bot está funcionando correctamente.");
+});
+
+/* ----------------------------------------
+   1️⃣  ENDPOINT PRINCIPAL WHATSAPP
+----------------------------------------- */
 app.post("/whatsapp", async (req, res) => {
-  console.log("📩 Request recibido:", req.body);
+  console.log("📩 [WEBHOOK] Mensaje recibido:", req.body);
 
-  try {
-    const { phone, message, type, mediaUrl } = req.body;
-    const from = phone;
-    let texto = message || "";
+  const { phone, message, type, mediaUrl } = req.body;
 
-    // 0.1 Transcribir nota de voz si corresponde
-    if (type === "voice" && mediaUrl) {
-      console.log("🎙 Nota de voz recibida, transcribiendo…");
-      const transcrito = await transcribirAudio(mediaUrl);
-      texto = transcrito || "[nota de voz no entendida]";
-      console.log("📝 Texto transcrito:", texto);
-    }
-
-    // 1. Buscar cliente en BD
-    let { data: cliente, error: clienteError } = await supabase
-      .from("clientes_detallados")
-      .select("*")
-      .eq("whatsapp", from)
-      .single();
-
-    if (clienteError && clienteError.code !== "PGRST116") {
-      console.error("❌ Error buscando cliente:", clienteError);
-    }
-
-    let esNuevo = false;
-
-    if (!cliente) {
-      // 1.a Cliente nuevo → crear y enviar catálogo + preguntar comuna
-      esNuevo = true;
-      const { data: nuevoCliente, error: insertError } = await supabase
-        .from("clientes_detallados")
-        .insert({
-          whatsapp: from,
-          pedido: "[]",
-          valor_total: 0,
-          costo_envio: 0
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error("❌ Error creando cliente:", insertError);
-        return res.json({
-          reply:
-            "Lo siento 💛 hubo un error al registrarte. Intenta nuevamente en unos minutos."
-        });
-      }
-
-      cliente = nuevoCliente;
-
-      const textoCatalogo =
-        `${RULES.mensajeBienvenida}\n\n` +
-        `🍰 Queques Peruanos ($${CATALOGO.quequesPeruanos.precio}) – Sabores: ${CATALOGO.quequesPeruanos.sabores.join(
-          ", "
-        )}. Porciones: ${CATALOGO.quequesPeruanos.porciones.join(
-          ", "
-        )}. Tamaño: ${CATALOGO.quequesPeruanos.tamanio}.\n\n` +
-        `🍪 Galletas y Delicias en bandeja de 20 unidades ($${CATALOGO.galletasBandeja.precio}) – Productos: ${CATALOGO.galletasBandeja.productos.join(
-          ", "
-        )}. (Bandejas por producto, no surtidas).\n\n` +
-        `🧁 Muffins:\n- ${CATALOGO.muffins.chips.nombre}: $${CATALOGO.muffins.chips.precio}\n- ${CATALOGO.muffins.premium.nombre}: $${CATALOGO.muffins.premium.precio} (${CATALOGO.muffins.premium.detalle.join(
-          ", "
-        )}).\n\n` +
-        `🤩 Delicias Premium:\n- ${CATALOGO.deliciasPremium.alfajoresMaicena.nombre}: $${CATALOGO.deliciasPremium.alfajoresMaicena.precio}\n- ${CATALOGO.deliciasPremium.cachitosManjar.nombre}: $${CATALOGO.deliciasPremium.cachitosManjar.precio}\n\n` +
-        `📦 Queque Artesanal Rectangular (${CATALOGO.quequeRectangular.tamanio}) – Sabores: ${CATALOGO.quequeRectangular.sabores.join(
-          ", "
-        )}. Precio: $${CATALOGO.quequeRectangular.precioUnidad}. ${CATALOGO.quequeRectangular.ofertaTexto}\n\n` +
-        `Las entregas se realizan al día siguiente (excepto domingos).\n\n` +
-        `¿En qué comuna vamos a despachar?`;
-
-      return res.json({ reply: textoCatalogo });
-    }
-
-    // 2. Cargar pedido actual (JSON en texto)
-    let pedidoItems = [];
-    if (cliente.pedido) {
-      try {
-        const parsed = JSON.parse(cliente.pedido);
-        if (Array.isArray(parsed)) pedidoItems = parsed;
-      } catch {
-        pedidoItems = [];
-      }
-    }
-
-    const textoLower = texto.toLowerCase();
-
-    // 3. Confirmación final
-    if (
-      ["confirmo", "sí confirmo", "si confirmo", "acepto", "confirmado"].some(
-        (w) => textoLower.includes(w)
-      ) &&
-      pedidoItems.length > 0
-    ) {
-      // Construir resumen para guardar
-      const resumen = construirTextoResumen(pedidoItems, cliente.comuna);
-      const { total, envio } = resumen;
-
-      const { error: insertPedidoError } = await supabase
-        .from("pedidos_completos")
-        .insert({
-          whatsapp: from,
-          nombre: cliente.nombre || null,
-          comuna: cliente.comuna || null,
-          direccion: cliente.direccion || null,
-          telefono_adicional: cliente.telefono_adicional || null,
-          pedido: JSON.stringify(pedidoItems),
-          valor_total: total,
-          costo_envio: envio,
-          fecha_entrega: null, // podría definirse en otra capa si usas fechas reales
-          hora_estimada: null,
-          confirmado: true
-        });
-
-      if (insertPedidoError) {
-        console.error("❌ Error guardando pedido:", insertPedidoError);
-        return res.json({
-          reply:
-            "Tu pedido casi queda listo, pero hubo un problema al guardar 💛. Por favor intenta nuevamente o escríbenos."
-        });
-      }
-
-      // Actualizar cliente con totales
-      await supabase
-        .from("clientes_detallados")
-        .update({
-          pedido: JSON.stringify(pedidoItems),
-          valor_total: total,
-          costo_envio: envio
-        })
-        .eq("whatsapp", from);
-
-      return res.json({
-        reply: "¡Perfecto! Tu pedido quedó agendado 💛\n\n✔️"
-      });
-    }
-
-    // 4. Si aún no tiene comuna → intentar tomar comuna
-    if (!cliente.comuna) {
-      const val = validarComuna(texto);
-      if (val.reparto) {
-        await supabase
-          .from("clientes_detallados")
-          .update({ comuna: texto })
-          .eq("whatsapp", from);
-
-        return res.json({
-          reply:
-            "Perfecto 💛 tenemos reparto en tu comuna. Cuéntame, ¿qué te gustaría pedir?"
-        });
-      }
-
-      // No hay reparto → ofrecer retiro en domicilio y pasar a flujo de productos (omitir paso 3 de despacho)
-      return res.json({
-        reply:
-          "Por ahora no tenemos reparto directo a esa comuna 💛.\n" +
-          `Puedes retirar en nuestro domicilio: ${RULES.retiroDomicilio}\n\n` +
-          "Si te sirve el retiro, cuéntame qué te gustaría pedir."
-      });
-    }
-
-    // 5. Si ya hay comuna, detectar productos en el mensaje
-    const detectados = detectarProductos(texto);
-    if (detectados.length > 0) {
-      const nuevoPedido = [...pedidoItems, ...detectados];
-
-      await supabase
-        .from("clientes_detallados")
-        .update({
-          pedido: JSON.stringify(nuevoPedido)
-        })
-        .eq("whatsapp", from);
-
-      return res.json({
-        reply:
-          "Anoté tu pedido 💛\n" +
-          detectados
-            .map((p) => `- ${p.cantidad} x ${p.nombre}`)
-            .join("\n") +
-          "\n\nSi quieres agregar algo más, dime. Cuando estés listo, puedes pedir *el resumen de tu pedido*."
-      });
-    }
-
-    // 6. Paso 3: Datos de despacho (solo si hay pedido y la comuna sí tiene reparto)
-    const comunaValida = validarComuna(cliente.comuna).reparto;
-
-    if (pedidoItems.length > 0 && comunaValida) {
-      // 6.1 Falta nombre
-      if (!cliente.nombre) {
-        if (esNombre(texto)) {
-          await supabase
-            .from("clientes_detallados")
-            .update({ nombre: texto })
-            .eq("whatsapp", from);
-
-          return res.json({
-            reply: "Gracias 💛 Ahora indícame tu dirección completa."
-          });
-        }
-
-        return res.json({
-          reply:
-            "Para el despacho necesito tu *nombre y apellido* 💛. Escríbemelos en un solo mensaje."
-        });
-      }
-
-      // 6.2 Falta dirección
-      if (!cliente.direccion) {
-        if (esDireccion(texto)) {
-          await supabase
-            .from("clientes_detallados")
-            .update({ direccion: texto })
-            .eq("whatsapp", from);
-
-          return res.json({
-            reply:
-              "Perfecto 💛 ¿Tienes un teléfono adicional o uso este mismo de WhatsApp?"
-          });
-        }
-
-        return res.json({
-          reply:
-            "Indícame tu *dirección completa* para el despacho (calle, número, depto/casa) 💛."
-        });
-      }
-
-      // 6.3 Falta teléfono adicional
-      if (!cliente.telefono_adicional) {
-        if (esTelefono(texto)) {
-          await supabase
-            .from("clientes_detallados")
-            .update({ telefono_adicional: texto })
-            .eq("whatsapp", from);
-
-          return res.json({
-            reply:
-              "Gracias 💛 Ya tengo tus datos. Si quieres, dime *resumen* para ver el detalle de tu pedido."
-          });
-        }
-
-        // Si dice que no tiene otro teléfono → usar el mismo
-        if (textoLower.includes("no") && textoLower.includes("otro")) {
-          await supabase
-            .from("clientes_detallados")
-            .update({ telefono_adicional: from })
-            .eq("whatsapp", from);
-
-          return res.json({
-            reply:
-              "Sin problema 💛 usaré este mismo número. Cuando quieras, pide *el resumen de tu pedido*."
-          });
-        }
-
-        return res.json({
-          reply:
-            "¿Tienes un *teléfono adicional* para contacto? Si no, puedes decirme que use este mismo 💛."
-        });
-      }
-    }
-
-    // 7. Paso 4: Resumen (cuando el cliente lo pida)
-    if (
-      pedidoItems.length > 0 &&
-      (textoLower.includes("resumen") ||
-        textoLower.includes("mi pedido") ||
-        textoLower.includes("detalle"))
-    ) {
-      const resumen = construirTextoResumen(pedidoItems, cliente.comuna);
-      return res.json({ reply: resumen.texto });
-    }
-
-    // 8. GPT general: responder dudas en cualquier momento y seguir flujo de venta
-    const { data: historial } = await supabase
-      .from("historial")
-      .select("*")
-      .eq("whatsapp", from);
-
-    const respuesta = await responderConGPT(texto, cliente, historial || []);
-
-    await supabase.from("historial").insert({
-      whatsapp: from,
-      mensaje_cliente: texto,
-      respuesta_luna: respuesta
-    });
-
-    return res.json({ reply: respuesta });
-  } catch (e) {
-    console.error("❌ Error general en /whatsapp:", e);
+  // Validación crítica: phone debe venir obligatoriamente
+  if (!phone || phone.trim() === "") {
+    console.log("❌ ERROR: WhatsAuto no envió el número del cliente.");
     return res.json({
-      reply: "Ocurrió un error inesperado 💛 Por favor intenta nuevamente."
+      reply:
+        "Lo siento 💛, no recibí tu número. Revisa la configuración de WhatsAuto (debe enviar {sender} como 'phone')."
     });
   }
+
+  const from = phone.trim();
+  let textoMensaje = message || "";
+
+  /* ----------------------------------------
+      2️⃣  NOTAS DE VOZ
+  ----------------------------------------- */
+  if (type === "voice" && mediaUrl) {
+    try {
+      textoMensaje = await transcribirAudio(mediaUrl);
+      console.log("🎙 Transcripción:", textoMensaje);
+    } catch (e) {
+      console.log("❌ Error transcribiendo:", e);
+      textoMensaje = "[No se pudo transcribir audio]";
+    }
+  }
+
+  /* ----------------------------------------
+      3️⃣  BUSCAR / CREAR CLIENTE
+  ----------------------------------------- */
+  let { data: cliente } = await supabase
+    .from("clientes_detallados")
+    .select("*")
+    .eq("whatsapp", from)
+    .single();
+
+  let nuevoCliente = false;
+
+  if (!cliente) {
+    console.log("🆕 Cliente nuevo. Creando registro...");
+    const { data: newCli, error: cliError } = await supabase
+      .from("clientes_detallados")
+      .insert({
+        whatsapp: from,
+        carrito: []
+      })
+      .select()
+      .single();
+
+    if (cliError) {
+      console.log("❌ Error creando cliente:", cliError);
+      return res.json({
+        reply: "Hubo un error registrándote 💛. Intenta nuevamente."
+      });
+    }
+
+    cliente = newCli;
+    nuevoCliente = true;
+  }
+
+  /* ----------------------------------------
+      4️⃣  CLIENTE NUEVO → ENVIAR CATÁLOGO
+  ----------------------------------------- */
+  if (nuevoCliente) {
+    return res.json({
+      reply:
+        rules.mensaje_bienvenida +
+        "\n\n¿En qué comuna necesitas el despacho? 🚚"
+    });
+  }
+
+  /* ----------------------------------------
+      5️⃣  VALIDAR COMUNA
+  ----------------------------------------- */
+  if (!cliente.comuna) {
+    const comunaDet = validarComuna(textoMensaje);
+
+    if (comunaDet.reparto) {
+      await supabase
+        .from("clientes_detallados")
+        .update({ comuna: textoMensaje.toLowerCase() })
+        .eq("whatsapp", from);
+
+      return res.json({
+        reply:
+          `Perfecto 💛 hacemos reparto en **${textoMensaje}**.\n` +
+          `Horario estimado: **${comunaDet.horario}**.\n\n` +
+          "¿Qué te gustaría pedir? 🍰"
+      });
+    }
+
+    // comuna sin reparto
+    return res.json({
+      reply:
+        `Por ahora no llegamos a **${textoMensaje}** 😢\n` +
+        `Pero puedes retirar en nuestro domicilio:\n\n📍 ${rules.retiro_domicilio}\n\n¿Deseas retirar?`
+    });
+  }
+
+  /* ----------------------------------------
+      6️⃣  DETECTAR PRODUCTOS
+  ----------------------------------------- */
+  const productosDetectados = detectarProducto(textoMensaje);
+
+  if (productosDetectados.length > 0) {
+    const nuevoCarrito = [...cliente.carrito, ...productosDetectados];
+
+    await supabase
+      .from("clientes_detallados")
+      .update({ carrito: nuevoCarrito })
+      .eq("whatsapp", from);
+
+    return res.json({
+      reply:
+        `Anotado 💛\n` +
+        productosDetectados
+          .map(
+            (p) => `• ${p.cantidad} x ${p.nombre} ($${p.precio})`
+          )
+          .join("\n") +
+        "\n\n¿Algo más?"
+    });
+  }
+
+  /* ----------------------------------------
+      7️⃣  SI EL CLIENTE ESCRIBE 'RESUMEN'
+  ----------------------------------------- */
+  if (textoMensaje.toLowerCase().includes("resumen")) {
+    const { total, envio } = calcularResumen(cliente.carrito);
+
+    return res.json({
+      reply:
+        "Aquí está tu resumen 💛:\n\n" +
+        cliente.carrito
+          .map(
+            (p) =>
+              `• ${p.cantidad} x ${p.nombre} = $${p.cantidad * p.precio}`
+          )
+          .join("\n") +
+        `\n\n🧾 Total productos: $${total}\n🚚 Envío: $${envio}\n\n¿Confirmas el pedido?`
+    });
+  }
+
+  /* ----------------------------------------
+      8️⃣  CONFIRMAR PEDIDO
+  ----------------------------------------- */
+  if (
+    textoMensaje.toLowerCase().includes("confirmo") ||
+    textoMensaje.toLowerCase().includes("acepto")
+  ) {
+    const { total, envio } = calcularResumen(cliente.carrito);
+
+    await supabase.from("pedidos_completos").insert({
+      nombre: cliente.nombre,
+      whatsapp: from,
+      comuna: cliente.comuna,
+      direccion: cliente.direccion,
+      telefono: cliente.telefono || cliente.whatsapp,
+      pedido: cliente.carrito,
+      total,
+      envio,
+      confirmado: true
+    });
+
+    return res.json({
+      reply:
+        "¡Perfecto! Tu pedido quedó agendado 💛\n✔️"
+    });
+  }
+
+  /* ----------------------------------------
+      9️⃣  SI NO ES NADA DE LO ANTERIOR → GPT
+  ----------------------------------------- */
+  const respuesta = await responderGPT(textoMensaje, [], cliente);
+
+  return res.json({ reply: respuesta });
 });
 
-/* SERVIDOR */
+/* ----------------------------------------
+   SERVIDOR
+----------------------------------------- */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Luna Bot listo en puerto ${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log("🚀 Luna Bot iniciado en puerto:", PORT)
+);
