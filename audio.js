@@ -1,4 +1,3 @@
-// audio.js
 import OpenAI from "openai";
 import dotenv from "dotenv";
 dotenv.config();
@@ -14,7 +13,7 @@ export async function transcribirAudio(fileUrl) {
 
     return res.text || "";
   } catch (e) {
-    console.error("❌ Error transcribiendo audio:", e);
+    console.log("❌ Error transcribiendo audio:", e);
     return "";
   }
 }
