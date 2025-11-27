@@ -1,34 +1,40 @@
-export function generarPrompt(historial, mensaje, cliente, reglas, memoria) {
-  let hist = "";
+// =========================
+//      prompts.js
+// =========================
 
-  historial?.forEach(h => {
-    hist += `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}\n`;
-  });
+export function generarPrompt(historial, mensajeCliente, cliente, reglas) {
+  let historialTexto = "";
+
+  if (historial && historial.length > 0) {
+    historial.forEach(h => {
+      historialTexto += `Cliente: ${h.mensaje_cliente}\nLuna: ${h.respuesta_luna}\n`;
+    });
+  }
 
   return `
 REGLAS DEL NEGOCIO:
 ${reglas}
 
-MEMORIA DEL PEDIDO (NO LO MENCIONES AL CLIENTE):
-${JSON.stringify(memoria)}
-
 DATOS DEL CLIENTE:
-- Nombre: ${cliente.nombre || "Pendiente"}
-- Dirección: ${cliente.direccion || "Pendiente"}
-- Comuna: ${cliente.comuna || "Pendiente"}
-- Extra: ${cliente.telefono_adicional || "Pendiente"}
+- Nombre: ${cliente.nombre || "no proporcionado"}
+- Dirección: ${cliente.direccion || "no proporcionada"}
+- Comuna: ${cliente.comuna || "no proporcionada"}
+- Teléfono adicional: ${cliente.telefono_adicional || "no proporcionado"}
 
 HISTORIAL:
-${hist}
+${historialTexto}
 
-MENSAJE ACTUAL:
-${mensaje}
+MENSAJE ACTUAL DEL CLIENTE:
+${mensajeCliente}
 
-INSTRUCCIONES:
-- Responde como Luna.
-- Habla natural, amable y con intención de cerrar venta.
-- Guía paso a paso.
-- Solo pide datos del cliente al final.
-- Si el cliente dice cualquier frase de confirmación, activa confirmación final.
-`;
+RESPONDE COMO *LUNA*:
+- Muy amable
+- Fluida
+- Profesional
+- Enfocada en ventas
+- Ofrece opciones claras
+- Sigue estrictamente las reglas del archivo
+- Guía el pedido paso a paso
+- Cuando el pedido esté claro, genera un **RESUMEN DEL PEDIDO**.
+  `;
 }
