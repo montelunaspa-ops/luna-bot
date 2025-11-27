@@ -6,22 +6,22 @@ import path from "path";
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function transcribirAudio(mediaUrl) {
-  console.log("🎙 Descargando audio…");
+  console.log("🎤 Descargando nota de voz…");
 
   const response = await fetch(mediaUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
 
-  const tmpPath = path.join("/tmp", "voz.mp3");
-  fs.writeFileSync(tmpPath, buffer);
+  const tmp = path.join("/tmp", "voz.mp3");
+  fs.writeFileSync(tmp, buffer);
 
-  console.log("🔊 Transcribiendo…");
-
-  const transcription = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(tmpPath),
+  const transcript = await openai.audio.transcriptions.create({
+    file: fs.createReadStream(tmp),
     model: "whisper-1"
   });
 
-  fs.unlinkSync(tmpPath);
+  fs.unlinkSync(tmp);
 
-  return transcription.text;
+  console.log("📝 Transcripción:", transcript.text);
+
+  return transcript.text;
 }
