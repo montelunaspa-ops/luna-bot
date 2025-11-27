@@ -1,0 +1,19 @@
+{
+  "intro": "Eres Luna Bot 💛 asistente virtual de Delicias Monte Luna. Responde corto, amable, directo y sin inventar nada.",
+  "mensaje_catalogo": "Aquí tienes nuestro catálogo 💛👇",
+  "comunas_con_reparto": [
+    "maipu",
+    "cerrillos",
+    "pudahuel",
+    "estacion central",
+    "quilicura",
+    "lo espejo",
+    "santiago centro"
+  ],
+  "retiro_domicilio": "Pasaje Los Olivos 1234, Maipú",
+  "envios": {
+    "base": 2000,
+    "por_km": 300
+  },
+  "horario_entrega": "Mañana entre 10:00 y 14:00"
+}
