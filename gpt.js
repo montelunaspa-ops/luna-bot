@@ -1,29 +1,36 @@
-// gpt.js
 import OpenAI from "openai";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { RULES } from "./rules.js";
-import { generarPrompt } from "./prompts.js";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+
+const rules = require("./rules.json");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-export async function responderConGPT(texto, cliente, historial = []) {
+export async function responderGPT(texto, historial, cliente) {
   try {
-    const prompt = generarPrompt(historial, texto, cliente);
+    const prompt = `
+Eres Luna, asistente virtual de Delicias Monte Luna.
+Responde corto, amable y preciso.
+Usa SOLO la información del catálogo y reglas.
+No inventes nada.
 
-    const resp = await openai.chat.completions.create({
+Cliente escribió: ${texto}
+`;
+
+    const res = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.4,
+      temperature: 0.5,
       messages: [
-        { role: "system", content: RULES.intro },
+        { role: "system", content: rules.intro },
         { role: "user", content: prompt }
       ]
     });
 
-    return resp.choices?.[0]?.message?.content || "";
+    return res.choices[0].message.content;
   } catch (e) {
-    console.error("❌ Error en GPT:", e);
-    return "Tuvimos un problema para responder 💛 por favor intenta de nuevo.";
+    return "Tuvimos un problema 💛 intenta de nuevo.";
   }
 }
