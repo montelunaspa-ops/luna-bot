@@ -1,18 +1,21 @@
-// catalogo.js
-export const CATALOGO = {
-  quequesPeruanos: {
-    nombreCategoria: "Queques Peruanos",
-    precio: 8500,
-    tamanio: "28 cm de diámetro, 10 cm de alto aprox.",
-    porciones: ["14", "16", "sin cortar"],
-    sabores: ["Chocolate", "Marmoleado", "Piña", "Vainilla", "Naranja", "Maracuyá"]
+{
+  "queques_peruanos": {
+    "precio": 8500,
+    "porciones": ["14", "16", "sin cortar"],
+    "tamanio": "28 cm diámetro, 10 cm alto",
+    "sabores": [
+      "Chocolate",
+      "Marmoleado",
+      "Piña",
+      "Vainilla",
+      "Naranja",
+      "Maracuyá"
+    ]
   },
 
-  galletasBandeja: {
-    nombreCategoria: "Galletas y Delicias en Bandeja de 20 unidades",
-    precio: 4000,
-    descripcion: "Bandeja de 20 unidades por cada producto, no son surtidas.",
-    productos: [
+  "galletas_bandeja_20": {
+    "precio": 4000,
+    "sabores": [
       "Rellena de Manjar",
       "Alemana",
       "Giro Coco",
@@ -24,37 +27,30 @@ export const CATALOGO = {
     ]
   },
 
-  muffins: {
-    chips: {
-      nombre: "Muffin Chips (6 unidades, empaque individual)",
-      precio: 3500,
-      cantidad: 6
-    },
-    premium: {
-      nombre: "Muffins Premium Sabores Surtidos (6 unidades)",
-      precio: 5000,
-      detalle: ["1 Chocolate", "1 Red Velvet", "1 Arándano", "1 Coco", "2 Chips"]
+  "muffins": {
+    "chips": { "precio": 3500, "cantidad": 6 },
+    "premium_surtido": {
+      "precio": 5000,
+      "cantidad": 6,
+      "detalles": [
+        "1 Chocolate",
+        "1 Red Velvet",
+        "1 Arándano",
+        "1 Coco",
+        "2 Chips"
+      ]
     }
   },
 
-  deliciasPremium: {
-    alfajoresMaicena: {
-      nombre: "Alfajores Premium de Maicena (12 unidades, 8-9 cm)",
-      precio: 6000,
-      cantidad: 12
-    },
-    cachitosManjar: {
-      nombre: "Cachitos Manjar Premium (10 unidades, 11-12 cm)",
-      precio: 6000,
-      cantidad: 10
-    }
+  "delicias_premium": {
+    "alfajor_maicena": { "precio": 6000, "cantidad": 12 },
+    "cachitos_manjar": { "precio": 6000, "cantidad": 10 }
   },
 
-  quequeRectangular: {
-    nombreCategoria: "Queque Artesanal Rectangular",
-    precioUnidad: 3000,
-    ofertaTexto: "Oferta: 4 unidades por $10.000 (sabores a elección).",
-    tamanio: "20 cm rectangular",
-    sabores: ["Vainilla Chips", "Manzana", "Arándanos"]
+  "queque_rectangular": {
+    "precio_unidad": 3000,
+    "oferta": "4 unidades por $10000",
+    "sabores": ["Vainilla Chips", "Manzana", "Arándanos"],
+    "tamano": "20 cm rectangular"
   }
-};
+}
