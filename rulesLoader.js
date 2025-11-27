@@ -1,24 +1,42 @@
-import { obtenerReglasDesdeDB } from "./lunaRules.js";
-import { guardarReglas, obtenerReglasCache, obtenerMomentoCarga } from "./rulesCache.js";
+// =========================
+//     rulesLoader.js
+// =========================
 
-const RELOAD_MS = 60000;
+import { supabase } from "./supabase.js";
+import {
+  guardarReglas,
+  obtenerReglasCache,
+  obtenerMomentoCarga
+} from "./rulesCache.js";
+
+const RELOAD_MS = 60000; // 1 minuto
 
 export async function cargarReglas(force = false) {
-  const last = obtenerMomentoCarga();
-  const now = Date.now();
+  const ultima = obtenerMomentoCarga();
+  const ahora = Date.now();
 
-  if (!force && last && now - last < RELOAD_MS && obtenerReglasCache()) {
+  if (!force && ultima && ahora - ultima < RELOAD_MS && obtenerReglasCache()) {
     return obtenerReglasCache();
   }
 
   console.log("🔄 Descargando reglas desde tabla luna_rules…");
 
-  const reglas = await obtenerReglasDesdeDB();
-  guardarReglas(reglas);
+  const { data, error } = await supabase
+    .from("luna_rules")
+    .select("contenido")
+    .eq("id", 1)
+    .single();
+
+  if (error) {
+    console.error("❌ Error al cargar reglas:", error);
+    return obtenerReglasCache() || "ERROR: reglas no disponibles.";
+  }
+
+  guardarReglas(data.contenido);
 
   console.log("✅ Reglas actualizadas");
-
-  return reglas;
+  return data.contenido;
 }
 
+// Recarga automática
 setInterval(() => cargarReglas(true), RELOAD_MS);
