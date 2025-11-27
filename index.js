@@ -1,16 +1,11 @@
-// =========================
-//        LUNA BOT
-//       index.js
-// =========================
-
 import express from "express";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
 dotenv.config();
 
+import rules from "./rules.json" assert { type: "json" };
 import { supabase } from "./supabase.js";
 import { generarPrompt } from "./prompts.js";
-import { cargarReglas } from "./rulesLoader.js";
 import { transcribirAudio } from "./utils.js";
 import OpenAI from "openai";
 
@@ -20,294 +15,185 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Estados temporales EN MEMORIA
-let estadosUsuarios = {}; // { whatsapp: { resumen, pedidoListo, datosPendientes } }
-
-// ======================================================
-// 🤖 GPT con reglas externas
-// ======================================================
-async function responderConGPT(texto, cliente, historial = []) {
-  console.log("🔎 Enviando mensaje a GPT…");
-
-  const reglas = await cargarReglas();
-  const prompt = generarPrompt(historial, texto, cliente, reglas);
-
+/* ====================================================
+   RESPUESTA GPT (BREVE)
+==================================================== */
+async function responderGPT(texto, historial, cliente) {
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const prompt = generarPrompt(historial, texto, cliente);
+
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.4,
       messages: [
-        { role: "system", content: reglas },
+        { role: "system", content: rules.intro },
         { role: "user", content: prompt }
-      ],
-      temperature: 0.7
+      ]
     });
 
-    return completion.choices?.[0]?.message?.content || "";
+    return res.choices[0].message.content || "";
   } catch (e) {
-    console.error("❌ Error en GPT:", e);
-    return "Hubo un problema al generar tu respuesta 💛 Intenta nuevamente.";
+    console.error("GPT error:", e);
+    return "Tuvimos un problema 💛 intenta otra vez.";
   }
 }
 
-// ======================================================
-// ✔ DETECTAR si cliente confirmó pedido
-// ======================================================
-function confirmacionPedido(texto) {
-  if (!texto) return false;
-  texto = texto.toLowerCase();
-  return (
-    texto.includes("confirmo") ||
-    texto.includes("si confirmo") ||
-    texto.includes("sí confirmo") ||
-    texto.includes("acepto") ||
-    texto.includes("está bien") ||
-    texto.includes("correcto") ||
-    texto.includes("ok") ||
-    texto.includes("vale")
-  );
+/* ====================================================
+   VALIDADORES
+==================================================== */
+function validarComuna(texto) {
+  const comunas = rules.comunas_con_reparto.map(c => c.toLowerCase());
+  const msg = texto.toLowerCase();
+
+  if (comunas.includes(msg)) return { reparto: true };
+  return { reparto: false, domicilio: rules.retiro_domicilio };
 }
 
-// ======================================================
-// ✔ DETECTAR si comuna tiene despacho
-// ======================================================
-const comunasConCobertura = [
-  "cerro navia","cerrillos","conchali","conchalí","estacion central","estación central",
-  "independencia","lo prado","lo espejo","maipu","maipú","pedro aguirre cerda",
-  "pudahuel","quinta normal","recoleta","renca","santiago","santiago centro",
-  "san miguel","san joaquin","san joaquín"
-];
-
-function comunaValida(c) {
-  if (!c) return false;
-  return comunasConCobertura.includes(c.toLowerCase());
+function esNombre(t) {
+  return t.split(" ").length >= 2 && t.length < 40;
 }
 
-// ======================================================
-// ✔ ENDPOINT ROOT
-// ======================================================
-app.get("/", (_, res) => res.send("Luna bot funcionando correctamente ✨"));
+function esDireccion(t) {
+  return /\d/.test(t) && t.length > 5;
+}
 
-// ======================================================
-// 📩 ENDPOINT PRINCIPAL: WHATSAPP
-// ======================================================
+function esTelefono(t) {
+  return /^[0-9+\s-]{7,15}$/.test(t);
+}
+
+/* ====================================================
+   ENDPOINT PRINCIPAL
+==================================================== */
 app.post("/whatsapp", async (req, res) => {
-  console.log("📩 [WEBHOOK] Mensaje recibido:", req.body);
+  console.log("📩 Solicitud:", req.body);
 
   try {
     const { phone, message, type, mediaUrl } = req.body;
     const from = phone;
-    let textoMensaje = message || "";
+    let texto = message || "";
 
-    // Si es nota de voz
     if (type === "voice" && mediaUrl) {
-      try {
-        console.log("🎙 Transcribiendo nota de voz…");
-        textoMensaje = await transcribirAudio(mediaUrl);
-      } catch {
-        textoMensaje = "[nota de voz no entendida]";
-      }
+      texto = await transcribirAudio(mediaUrl);
     }
 
-    // ======================================================
-    // 1️⃣ Buscar o crear cliente
-    // ======================================================
+    /* 1️⃣ Verificar cliente existente */
     let { data: cliente } = await supabase
       .from("clientes_detallados")
       .select("*")
       .eq("whatsapp", from)
       .single();
 
-    let clienteNuevo = false;
-
     if (!cliente) {
+      const { data: nuevoCliente } = await supabase
+        .from("clientes_detallados")
+        .insert({ whatsapp: from })
+        .select()
+        .single();
+
+      cliente = nuevoCliente;
+
+      return res.json({
+        reply:
+          `${rules.mensaje_catalogo}\n${JSON.stringify(rules.catalogo)}\n\n` +
+          "¿Para qué comuna será el despacho?"
+      });
+    }
+
+    /* 2️⃣ Validación comuna */
+    if (!cliente.comuna) {
+      const val = validarComuna(texto);
+
+      if (val.reparto) {
+        await supabase
+          .from("clientes_detallados")
+          .update({ comuna: texto })
+          .eq("whatsapp", from);
+
+        return res.json({ reply: "Perfecto 💛 ¿Qué deseas pedir?" });
+      }
+
+      return res.json({
+        reply:
+          `Lo siento 💛 no tenemos reparto a esa comuna.\n` +
+          `Puedes retirar en: ${val.domicilio}\n\n¿Deseas continuar?`
+      });
+    }
+
+    /* 3️⃣ Datos despacho */
+    if (!cliente.nombre && esNombre(texto)) {
       await supabase
         .from("clientes_detallados")
-        .insert({ whatsapp: from });
+        .update({ nombre: texto })
+        .eq("whatsapp", from);
 
-      clienteNuevo = true;
-      cliente = { whatsapp: from };
-      console.log("🆕 Cliente nuevo detectado:", from);
+      return res.json({ reply: "Gracias 💛 ahora tu dirección completa." });
     }
 
-    // Crear estado temporal si no existe
-    if (!estadosUsuarios[from]) {
-      estadosUsuarios[from] = {
-        paso: "inicio",
-        resumen: null,
-        pedidoListo: false,
-        datosPendientes: null
-      };
-    }
-
-    const estado = estadosUsuarios[from];
-
-    // ======================================================
-    // 2️⃣ Mensaje de bienvenida SOLO cliente nuevo
-    // ======================================================
-    if (clienteNuevo) {
-      const reglas = await cargarReglas();
-      const bienvenida =
-        reglas.split("Catálogo:")[0] +
-        "\n\nAquí tienes nuestro catálogo 👇\n\n" +
-        reglas.split("Catálogo:")[1].split("Reglas de despacho")[0] +
-        "\n\n💛 ¿Para qué comuna sería el despacho?";
-
-      return res.json({ reply: bienvenida });
-    }
-
-    // ======================================================
-    // 3️⃣ Validar comuna (primer paso obligatorio)
-    // ======================================================
-    if (estado.paso === "inicio") {
-      if (!comunaValida(textoMensaje)) {
-        return res.json({
-          reply:
-            "Necesito saber la **comuna de despacho** para continuar 💛\n\n" +
-            "Estas son las comunas con cobertura:\n" +
-            comunasConCobertura.map(c => `• ${c}`).join("\n")
-        });
-      }
-
-      estado.comuna = textoMensaje;
-      estado.paso = "tomando_pedido";
+    if (!cliente.direccion && esDireccion(texto)) {
+      await supabase
+        .from("clientes_detallados")
+        .update({ direccion: texto })
+        .eq("whatsapp", from);
 
       return res.json({
-        reply: "Perfecto 💛 ¡Sí tenemos cobertura en tu comuna!\n\n¿Qué deseas pedir hoy?"
+        reply: "Perfecto 💛 ¿Teléfono adicional o uso el mismo?"
       });
     }
 
-    // ======================================================
-    // 4️⃣ Si ya se tomó el pedido y GPT armó un RESUMEN
-    // ======================================================
-    if (estado.pedidoListo && estado.resumen) {
-      if (!confirmacionPedido(textoMensaje)) {
-        return res.json({
-          reply:
-            "Si deseas que procesemos tu pedido, por favor confirma 💛\n\n" +
-            "Solo responde: **confirmo**"
-        });
-      }
-
-      // Confirmación → solicitar datos cliente
-      estado.paso = "datos_cliente";
+    if (!cliente.telefono_adicional && esTelefono(texto)) {
+      await supabase
+        .from("clientes_detallados")
+        .update({ telefono_adicional: texto })
+        .eq("whatsapp", from);
 
       return res.json({
-        reply:
-          "¡Perfecto! 💛 Ahora necesito los datos para el despacho:\n\n" +
-          "1️⃣ Nombre y apellido\n" +
-          "2️⃣ Dirección exacta\n" +
-          "3️⃣ Teléfono adicional"
+        reply: "Perfecto 💛 dime qué deseas pedir."
       });
     }
 
-    // ======================================================
-    // 5️⃣ Captura de datos del cliente después de confirmar resumen
-    // ======================================================
-    if (estado.paso === "datos_cliente") {
-      if (!cliente.nombre) {
-        await supabase
-          .from("clientes_detallados")
-          .update({ nombre: textoMensaje })
-          .eq("whatsapp", from);
-        cliente.nombre = textoMensaje;
-
-        return res.json({ reply: "Gracias 💛 Ahora indícame tu **dirección exacta** 📍" });
-      }
-
-      if (!cliente.direccion) {
-        await supabase
-          .from("clientes_detallados")
-          .update({ direccion: textoMensaje })
-          .eq("whatsapp", from);
-        cliente.direccion = textoMensaje;
-
-        return res.json({ reply: "Perfecto 💛 ¿Algún teléfono adicional o contacto?" });
-      }
-
-      if (!cliente.telefono_adicional) {
-        await supabase
-          .from("clientes_detallados")
-          .update({ telefono_adicional: textoMensaje })
-          .eq("whatsapp", from);
-        cliente.telefono_adicional = textoMensaje;
-
-        estado.paso = "confirmando_datos";
-
-        return res.json({
-          reply:
-            "Gracias 💛 Aquí tienes el resumen final para confirmar:\n\n" +
-            estado.resumen +
-            "\n\n¿Confirmas que toda la información está correcta?"
-        });
-      }
-    }
-
-    // ======================================================
-    // 6️⃣ Confirmación final → Guardado en Supabase
-    // ======================================================
-    if (estado.paso === "confirmando_datos") {
-      if (!confirmacionPedido(textoMensaje)) {
-        return res.json({
-          reply: "Si todo está correcto, responde **confirmo** 💛"
-        });
-      }
-
-      console.log("💾 Guardando pedido completo…");
-
-      await supabase.from("pedidos_completos").insert({
-        nombre: cliente.nombre,
-        whatsapp: from,
-        direccion: cliente.direccion,
-        comuna: estado.comuna,
-        pedido: estado.resumen,
-        valor_total: 0, // GPT no maneja dinero
-        costo_envio: 2400,
-        confirmado: true
-      });
-
-      delete estadosUsuarios[from];
-
-      return res.json({
-        reply:
-          "¡Pedido confirmado con éxito! 💛\nMañana realizaremos la entrega (excepto domingos).\n\n✔️"
-      });
-    }
-
-    // ======================================================
-    // 7️⃣ GPT Maneja conversación normal y genera resumen
-    // ======================================================
+    /* 4️⃣ Historial */
     const { data: historial } = await supabase
       .from("historial")
       .select("*")
       .eq("whatsapp", from);
 
-    const respuesta = await responderConGPT(textoMensaje, cliente, historial);
+    /* 5️⃣ GPT */
+    const respuesta = await responderGPT(texto, historial, cliente);
 
-    // Detectar si GPT generó resumen
-    if (respuesta.includes("RESUMEN DEL PEDIDO")) {
-      estado.resumen = respuesta;
-      estado.pedidoListo = true;
-    }
-
-    // Guardar historial
     await supabase.from("historial").insert({
       whatsapp: from,
-      mensaje_cliente: textoMensaje,
+      mensaje_cliente: texto,
       respuesta_luna: respuesta
     });
 
+    /* 6️⃣ Confirmación */
+    if (
+      ["confirmo", "acepto", "sí confirmo", "confirmado"].some(v =>
+        texto.toLowerCase().includes(v)
+      )
+    ) {
+      await supabase.from("pedidos_completos").insert({
+        whatsapp: from,
+        nombre: cliente.nombre,
+        comuna: cliente.comuna,
+        direccion: cliente.direccion,
+        telefono_adicional: cliente.telefono_adicional,
+        pedido: cliente.pedido || "Sin detalle",
+        confirmado: true
+      });
+
+      return res.json({
+        reply: "¡Perfecto! Tu pedido quedó agendado 💛\n\n✔️"
+      });
+    }
+
     return res.json({ reply: respuesta });
   } catch (e) {
-    console.error("❌ Error general:", e);
-    return res.json({
-      reply:
-        "Ocurrió un error inesperado 💛 Por favor intenta nuevamente."
-    });
+    console.error("Error:", e);
+    return res.json({ reply: "Error inesperado 💛 intenta nuevamente." });
   }
 });
 
-// ======================================================
-// SERVIDOR
-// ======================================================
+/* SERVER */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Luna lista en puerto ${PORT}`));
+app.listen(PORT, () => console.log("🚀 Luna Bot listo en puerto", PORT));
