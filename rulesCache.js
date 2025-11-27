@@ -1,15 +1,19 @@
-let cache = null;
-let lastLoad = 0;
+// =========================
+//     rulesCache.js
+// =========================
 
-export function guardarReglas(texto) {
-  cache = texto;
-  lastLoad = Date.now();
+let contenidoCache = null;
+let momentoCarga = null;
+
+export function guardarReglas(contenido) {
+  contenidoCache = contenido;
+  momentoCarga = Date.now();
 }
 
 export function obtenerReglasCache() {
-  return cache;
+  return contenidoCache;
 }
 
 export function obtenerMomentoCarga() {
-  return lastLoad;
+  return momentoCarga;
 }
