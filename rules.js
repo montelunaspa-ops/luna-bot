@@ -1,38 +1,19 @@
-// rules.js
-export const RULES = {
-  intro:
-    "Eres Luna 💛, asistente virtual de Delicias Monte Luna. Respondes corto, amable y solo usas la información oficial del negocio.",
+{
+  "intro": "Eres Luna 💛 asistente virtual de Delicias Monte Luna. Responde corto, amable y usando solo el catálogo oficial.",
+  "mensaje_bienvenida": "¡Hola! Soy Luna, asistente virtual de Delicias Monte Luna. 🌙✨ Puedes hacer tu pedido en www.monteluna.cl o por WhatsApp conmigo.\nAquí tienes nuestro catálogo:",
+  "retiro_domicilio": "Calle Chacabuco 1120, Santiago Centro (Lun-Vie 10-11 / 18-20, Sáb 10-12). Se debe agendar.",
+  "despacho_gratis_desde": 14990,
+  "costo_despacho": 2400,
 
-  mensajeBienvenida:
-    "¡Hola! Soy Luna, asistente virtual de Delicias Monte Luna. 🌙✨\nPuedes hacer tu pedido fácilmente por la página www.monteluna.cl o por WhatsApp conmigo.\n\nTe dejo nuestro catálogo para que elijas:",
-
-  retiroDomicilio:
-    "Calle Chacabuco 1120, Santiago Centro (Lunes a viernes 10:00-11:00 y 18:00-20:00, sábado 10:00-12:00, previa coordinación).",
-
-  // Reglas de despacho
-  despachoGratisDesde: 14990,
-  costoDespacho: 2400,
-  diasSinDespacho: ["domingo"],
-  entregaDiaSiguiente: true,
-
-  reglasTexto: [
-    "Las entregas se realizan al día siguiente de realizar el pedido, excepto los domingos.",
-    "Los pedidos recibidos sábado y domingo se entregan el día lunes.",
-    "Entregas por ruta con varios pedidos, hora exacta no garantizada.",
-    "Métodos de pago: efectivo o débito.",
-    "No hay compra mínima, pero el despacho es gratuito por compras mayores a $14.990; si no, el envío cuesta $2.400.",
-    "Preguntar siempre los sabores y las porciones de los queques o si los prefieren sin cortar."
-  ],
-
-  comunasDespacho: [
+  "comunas_con_reparto": [
     "cerro navia",
     "cerrillos",
-    "conchali",
-    "estacion central",
+    "conchalí",
+    "estación central",
     "independencia",
     "lo prado",
     "lo espejo",
-    "maipu",
+    "maipú",
     "pedro aguirre cerda",
     "pudahuel",
     "quinta normal",
@@ -40,25 +21,25 @@ export const RULES = {
     "renca",
     "santiago centro",
     "san miguel",
-    "san joaquin"
+    "san joaquín"
   ],
 
-  horariosEntrega: {
-    "cerro navia": "11:00-13:00",
-    "cerrillos": "11:00-13:00",
-    "conchali": "12:00-14:00",
-    "estacion central": "09:00-11:00",
-    "independencia": "11:00-14:00",
-    "lo prado": "11:00-13:00",
-    "lo espejo": "10:00-12:00",
-    "maipu": "10:00-12:00",
-    "pedro aguirre cerda": "10:00-12:00",
-    "pudahuel": "12:00-14:00",
-    "quinta normal": "10:00-13:00",
-    "recoleta": "11:00-13:00",
-    "renca": "10:00-13:00",
-    "santiago centro": "09:00-11:00",
-    "san miguel": "10:00-12:00",
-    "san joaquin": "10:00-12:00"
+  "horarios_entrega": {
+    "cerro navia": "11-13",
+    "cerrillos": "11-13",
+    "conchalí": "12-14",
+    "estación central": "9-11",
+    "independencia": "11-14",
+    "lo prado": "11-13",
+    "lo espejo": "10-12",
+    "maipú": "10-12",
+    "pedro aguirre cerda": "10-12",
+    "pudahuel": "12-14",
+    "quinta normal": "10-13",
+    "recoleta": "11-13",
+    "renca": "10-13",
+    "santiago centro": "9-11",
+    "san miguel": "10-12",
+    "san joaquín": "10-12"
   }
-};
+}
