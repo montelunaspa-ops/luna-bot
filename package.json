@@ -1,7 +1,7 @@
 {
   "name": "luna-whatsapp-bot",
   "version": "1.0.0",
-  "description": "Luna Bot - WhatsApp + Whatauto + GPT-4o + Supabase",
+  "description": "Luna Bot para Delicias Monte Luna (WhatsApp + Whatauto + GPT-4o + Supabase)",
   "main": "index.js",
   "type": "module",
   "scripts": {
