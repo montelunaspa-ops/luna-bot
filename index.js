@@ -1,5 +1,3 @@
-// index.js — VERSIÓN FINAL, ESTABLE Y CORREGIDA
-
 import express from "express";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
@@ -34,7 +32,6 @@ app.post("/whatsapp", async (req, res) => {
 
   const { phone, message, type, mediaUrl } = req.body;
 
-  // WhatsAuto debe enviar el número SIEMPRE
   if (!phone) {
     return res.json({
       reply:
@@ -77,13 +74,17 @@ app.post("/whatsapp", async (req, res) => {
   }
 
   // ------------------------------------------------------
-  // 2. CLIENTE NUEVO O SALUDO → MOSTRAR CATÁLOGO SIEMPRE
+  // 2. SALUDO O CLIENTE NUEVO → ENVIAR CATÁLOGO
   // ------------------------------------------------------
-  const saludo = ["hola", "buenas", "buenos días", "buenas tardes", "buenas noches"];
-  if (
-    nuevoCliente ||
-    saludo.some((s) => texto.includes(s))
-  ) {
+  const saludo = [
+    "hola",
+    "buenas",
+    "buenos días",
+    "buenas tardes",
+    "buenas noches"
+  ];
+
+  if (nuevoCliente || saludo.some((s) => texto === s || texto.includes(s))) {
     return res.json({
       reply:
         rules.catalogo_completo +
@@ -92,9 +93,18 @@ app.post("/whatsapp", async (req, res) => {
   }
 
   // ------------------------------------------------------
-  // 3. DETECCIÓN DIRECTA DE “CATÁLOGO”
+  // 3. DETECCIÓN DE “CATÁLOGO”
   // ------------------------------------------------------
-  const palabrasCatalogo = ["catalogo", "catálogo", "ver menu", "menu", "ver catálogo"];
+  const palabrasCatalogo = [
+    "catalogo",
+    "catálogo",
+    "ver menú",
+    "menu",
+    "ver catalogo",
+    "ver el catalogo",
+    "mostrar catalogo"
+  ];
+
   if (palabrasCatalogo.some((p) => texto.includes(p))) {
     return res.json({
       reply: rules.catalogo_completo
@@ -102,12 +112,12 @@ app.post("/whatsapp", async (req, res) => {
   }
 
   // ------------------------------------------------------
-  // 4. VALIDAR COMUNA — SIN BLOQUEAR EL FLUJO
+  // 4. VALIDAR COMUNA
   // ------------------------------------------------------
   if (!cliente.comuna) {
     const comuna = validarComuna(texto);
 
-    // SI ES UNA COMUNA VÁLIDA → GUARDAR Y CONTINUAR
+    // ✔ COMUNA VÁLIDA
     if (comuna.reparto) {
       await supabase
         .from("clientes_detallados")
@@ -122,13 +132,37 @@ app.post("/whatsapp", async (req, res) => {
       });
     }
 
-    // SI NO ES UNA COMUNA → RESPONDER PREGUNTA Y PEDIR COMUNA DE NUEVO
-    const respuesta = await responderGPT(texto, cliente);
-
+    // ❌ COMUNA NO VÁLIDA → OFRECER RETIRO
     return res.json({
       reply:
-        `${respuesta}\n\nAntes de continuar, ¿en qué comuna necesitas el despacho?`
+        `Lo siento 💛, aún no tenemos reparto en *${texto}*.\n\n` +
+        `📍 Puedes retirar en nuestro domicilio:\n${rules.retiro_domicilio}\n\n` +
+        "¿Deseas retirar en domicilio?"
     });
+  }
+
+  // ------------------------------------------------------
+  // 4.1 DETECTAR RESPUESTA DE RETIRO
+  // ------------------------------------------------------
+  if (cliente.comuna === null) {
+    if (
+      texto.includes("si") ||
+      texto.includes("sí") ||
+      texto.includes("quiero retirar") ||
+      texto.includes("retirar") ||
+      texto.includes("retiro")
+    ) {
+      await supabase
+        .from("clientes_detallados")
+        .update({ comuna: "retiro" })
+        .eq("whatsapp", whatsapp);
+
+      return res.json({
+        reply:
+          "Perfecto 💛 tu pedido será para *retiro* en Calle Chacabuco 1120.\n\n" +
+          "¿Qué deseas pedir?"
+      });
+    }
   }
 
   // ------------------------------------------------------
@@ -158,7 +192,7 @@ app.post("/whatsapp", async (req, res) => {
   }
 
   // ------------------------------------------------------
-  // 6. RESUMEN DEL PEDIDO
+  // 6. RESUMEN
   // ------------------------------------------------------
   if (
     texto.includes("resumen") ||
@@ -181,7 +215,7 @@ app.post("/whatsapp", async (req, res) => {
   }
 
   // ------------------------------------------------------
-  // 7. CONFIRMACIÓN DEL PEDIDO
+  // 7. CONFIRMACIÓN FINAL
   // ------------------------------------------------------
   if (
     texto.includes("confirmo") ||
@@ -199,7 +233,6 @@ app.post("/whatsapp", async (req, res) => {
       confirmado: true
     });
 
-    // limpiar carrito
     await supabase
       .from("clientes_detallados")
       .update({ carrito: [] })
@@ -211,7 +244,7 @@ app.post("/whatsapp", async (req, res) => {
   }
 
   // ------------------------------------------------------
-  // 8. GPT COMO ÚLTIMA OPCIÓN
+  // 8. GPT (RESPUESTAS GENERALES)
   // ------------------------------------------------------
   const respuesta = await responderGPT(texto, cliente);
   return res.json({ reply: respuesta });
