@@ -1,5 +1,5 @@
 // ===================================================
-//  audio.js — Procesar notas de voz usando GPT-4o
+//  audio.js — Procesa notas de voz con GPT-4o
 // ===================================================
 
 import OpenAI from "openai";
@@ -9,14 +9,14 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Descargar audio desde URL (para Whatauto)
+// Descargar audio desde URL
 async function descargarAudioDesdeURL(url) {
   const response = await fetch(url);
   const buffer = await response.arrayBuffer();
   return Buffer.from(buffer);
 }
 
-// Convertir base64 en buffer
+// Base64 a buffer
 function base64ToBuffer(base64) {
   if (base64.includes("base64,")) {
     base64 = base64.split("base64,")[1];
@@ -24,10 +24,10 @@ function base64ToBuffer(base64) {
   return Buffer.from(base64, "base64");
 }
 
-// Transcribir con GPT-4o
+// Transcribir audio con GPT-4o
 async function transcribirConGPT4o(buffer) {
   try {
-    const result = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
@@ -39,21 +39,21 @@ async function transcribirConGPT4o(buffer) {
             },
             {
               type: "text",
-              text: "Transcribe exactamente este audio a texto:"
+              text: "Transcribe este audio exactamente a texto:"
             }
           ]
         }
       ]
     });
 
-    return result.choices[0].message.content || "";
+    return response.choices[0].message.content || "";
   } catch (error) {
-    console.error("❌ Error al transcribir con GPT-4o:", error);
+    console.error("❌ Error transcribiendo audio:", error);
     return "";
   }
 }
 
-// FUNCIÓN PRINCIPAL
+// Función principal
 export async function procesarAudio(audioData) {
   try {
     let buffer = null;
@@ -65,12 +65,10 @@ export async function procesarAudio(audioData) {
     }
 
     if (!buffer) return "";
+    return await transcribirConGPT4o(buffer);
 
-    const texto = await transcribirConGPT4o(buffer);
-    return texto;
-    
-  } catch (error) {
-    console.error("❌ Error procesando audio:", error);
+  } catch (e) {
+    console.error("❌ Error procesando audio:", e);
     return "";
   }
 }
