@@ -8,9 +8,10 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export async function responderGPT(texto, cliente) {
   try {
     const prompt = `
-Eres Luna, asistente virtual. Responde corto, amable y solo con la información oficial.
-Cliente: ${texto}
-`;
+Eres Luna, asistente virtual de Delicias Monte Luna.
+Responde en mensajes cortos y claros.
+Texto del cliente: ${texto}
+    `;
 
     const res = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -23,7 +24,6 @@ Cliente: ${texto}
 
     return res.choices[0].message.content;
   } catch (e) {
-    console.log("GPT error:", e);
-    return "Ocurrió un error 💛 intenta de nuevo.";
+    return "Hubo un problema para responder 💛 intenta otra vez.";
   }
 }
