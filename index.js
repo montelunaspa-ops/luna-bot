@@ -16,16 +16,28 @@ dotenv.config();
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
+// ===============================================
+// Ruta de prueba
+// ===============================================
 app.get("/", (req, res) => {
   res.send("Luna Bot está funcionando ✔️");
 });
 
-// Extraer texto del body Whatauto
+// ===============================================
+// Extraer texto enviado por Whatauto
+// ===============================================
 function extraerMensaje(body) {
-  return body?.message || body?.text || body?.mensaje || "";
+  return (
+    body?.message ||
+    body?.text ||
+    body?.mensaje ||
+    ""
+  );
 }
 
+// ===============================================
 // Guardar historial
+// ===============================================
 async function guardarHistorial(telefono, mensaje, respuesta) {
   await supabase.from("historial").insert({
     telefono,
@@ -34,7 +46,9 @@ async function guardarHistorial(telefono, mensaje, respuesta) {
   });
 }
 
-// Obtener historial completo
+// ===============================================
+// Obtener historial
+// ===============================================
 async function obtenerHistorial(telefono) {
   const { data } = await supabase
     .from("historial")
@@ -45,7 +59,9 @@ async function obtenerHistorial(telefono) {
   return data || [];
 }
 
+// ===============================================
 // Registrar cliente nuevo
+// ===============================================
 async function registrarCliente(telefono) {
   await supabase.from("clientes_detallados").insert({
     telefono,
@@ -53,7 +69,9 @@ async function registrarCliente(telefono) {
   });
 }
 
-// Verificar cliente
+// ===============================================
+// Verificar cliente existente
+// ===============================================
 async function verificarCliente(telefono) {
   const { data } = await supabase
     .from("clientes_detallados")
@@ -65,38 +83,37 @@ async function verificarCliente(telefono) {
 }
 
 // ===============================================
-//  WEBHOOK PRINCIPAL
+//   WEBHOOK PRINCIPAL
 // ===============================================
-
 app.post("/whatsapp", async (req, res) => {
   try {
     const telefono = req.body.from;
+
+    // ⬇️ mensaje inicial
     let mensajeOriginal = extraerMensaje(req.body);
 
-    // Si viene audio → transcribir con GPT-4o
+    // ⬇️ si viene audio, transcribirlo con GPT-4o
     if (req.body?.audio) {
       const texto = await procesarAudio(req.body.audio);
-      if (texto && texto.length > 0) {
-        mensajeOriginal = texto;
-      }
+      if (texto) mensajeOriginal = texto;
     }
 
     const mensajeNormalizado = normalizar(mensajeOriginal);
 
-    // Cargar reglas desde Supabase
+    // ⬇️ cargar reglas
     const reglas = await obtenerReglas();
 
-    // Verificar cliente
+    // ⬇️ cliente
     let cliente = await verificarCliente(telefono);
     if (!cliente) {
       await registrarCliente(telefono);
       cliente = { telefono };
     }
 
-    // Historial para GPT
+    // ⬇️ historial completo
     const historial = await obtenerHistorial(telefono);
 
-    // GPT decide absolutamente TODO
+    // ⬇️ GPT-4o responde TODO
     const respuesta = await responderGPT({
       mensajeOriginal,
       mensajeNormalizado,
@@ -105,8 +122,20 @@ app.post("/whatsapp", async (req, res) => {
       cliente
     });
 
-    // Guardar en historial
+    // ⬇️ guardar historial
     await guardarHistorial(telefono, mensajeOriginal, respuesta);
 
-    // Responder a Whatauto
-    return res.json({ reply: respuesta
+    return res.json({ reply: respuesta });
+
+  } catch (error) {
+    console.error("❌ Error en /whatsapp:", error);
+    return res.json({ reply: "Lo siento, ocurrió un error inesperado 😓" });
+  }
+});
+
+// ===============================================
+//   INICIAR SERVIDOR
+// ===============================================
+app.listen(process.env.PORT || 3000, () => {
+  console.log("✔ Luna Bot activo en puerto", process.env.PORT || 3000);
+});
