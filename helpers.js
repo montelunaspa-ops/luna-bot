@@ -1,6 +1,7 @@
-// helpers.js
+// helpers.js — Versión B (restaurada)
 import rules from "./rules.js";
 
+// VALIDAR COMUNA
 export function validarComuna(texto) {
   const comuna_text = texto.toLowerCase().trim();
   const comunas_validas = rules.comunas;
@@ -16,18 +17,9 @@ export function validarComuna(texto) {
   return { reparto: false };
 }
 
-export function calcularResumen(carrito) {
-  let total = 0;
-  carrito.forEach((p) => (total += p.precio * p.cantidad));
-
-  const envio = total >= rules.despacho_gratis ? 0 : rules.costo_envio;
-
-  return { total, envio };
-}
-
+// DETECTAR PRODUCTOS
 export function detectarProducto(texto) {
   texto = texto.toLowerCase();
-
   const productos = [];
 
   function add(nombre, precio) {
@@ -63,4 +55,17 @@ export function detectarProducto(texto) {
   }
 
   return productos;
+}
+
+// CALCULAR RESUMEN
+export function calcularResumen(carrito) {
+  let total = 0;
+
+  carrito.forEach((p) => {
+    total += p.cantidad * p.precio;
+  });
+
+  const envio = total >= rules.despacho_gratis ? 0 : rules.costo_envio;
+
+  return { total, envio };
 }
