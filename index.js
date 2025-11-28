@@ -13,6 +13,9 @@ import {
   calcularResumen
 } from "./helpers.js";
 
+// 👇 Nuevo import del clasificador GPT
+import { clasificarMensaje } from "./classifier.js";
+
 const app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -80,70 +83,53 @@ app.post("/whatsapp", async (req, res) => {
   const palabrasCatalogo = ["catalogo", "catálogo", "ver catálogo", "menu", "ver menu"];
 
   if (palabrasCatalogo.some((p) => texto.includes(p))) {
-    return res.json({
-      reply: rules.catalogo_completo
-    });
+    return res.json({ reply: rules.catalogo_completo });
   }
 
-  // ---------- 3. COMUNA AÚN NO DEFINIDA (BLOQUE CORREGIDO) ----------
+  // ---------- 3. BLOQUE DE COMUNA (REEMPLAZADO POR GPT CLASSIFIER) ----------
   if (!cliente.comuna) {
 
-    const comuna = validarComuna(texto);
+    // 🧠 GPT decide qué tipo de mensaje envió el cliente
+    const tipo = await clasificarMensaje(texto);
 
-    // ✔ COMUNA VÁLIDA
-    if (comuna.reparto) {
+    // 1) Es una comuna válida
+    if (tipo === "comuna_valida") {
       await supabase
         .from("clientes_detallados")
         .update({ comuna: texto })
         .eq("whatsapp", whatsapp);
 
+      const horario = rules.horarios[texto];
+
       return res.json({
         reply:
           `Perfecto 💛 hacemos reparto en *${texto}*.\n` +
-          `Horario estimado: ${comuna.horario}.\n\n` +
+          `Horario estimado: ${horario}.\n\n` +
           "¿Qué deseas pedir?"
       });
     }
 
-    // ❌ NO ES COMUNA VÁLIDA → OFRECER RETIRO
-    if (
-      !texto.includes("si") &&
-      !texto.includes("sí") &&
-      !texto.includes("retirar") &&
-      !texto.includes("retiro")
-    ) {
+    // 2) Es una comuna inválida
+    if (tipo === "comuna_invalida") {
       return res.json({
         reply:
-          `Lo siento 💛, no tenemos reparto en *${texto}*.\n\n` +
+          `Aún no tenemos reparto en *${texto}* 💛\n` +
           `📍 Puedes retirar en: ${rules.retiro_domicilio}\n\n` +
           "¿Deseas retiro?"
       });
     }
 
-    // ✔ ACEPTA RETIRO
-    if (
-      texto.includes("si") ||
-      texto.includes("sí") ||
-      texto.includes("retirar") ||
-      texto.includes("retiro")
-    ) {
-      await supabase
-        .from("clientes_detallados")
-        .update({ comuna: "retiro" })
-        .eq("whatsapp", whatsapp);
-
+    // 3) Es una pregunta → Responder y retomar flujo
+    if (tipo === "pregunta") {
+      const resp = await responderGPT(texto, cliente);
       return res.json({
-        reply:
-          "Perfecto 💛 tu pedido será para *retiro*.\n\n" +
-          "¿Qué deseas pedir?"
+        reply: `${resp}\n\n💛 ¿En qué comuna enviamos tu pedido?`
       });
     }
 
-    // 🔧 **FIX: PERMITIR PREGUNTAS Y QUE GPT RESPONDA ANTES DE LA COMUNA**
-    const respuestaGPT = await responderGPT(texto, cliente);
-
+    // 4) Es otro texto → pedir comuna de nuevo
     return res.json({
-      reply: `${respuestaGPT}\n\n💛 ¿En qué comuna enviamos tu pedido?`
+      reply: "Para continuar necesito tu comuna 💛"
     });
   }
 
@@ -163,8 +149,7 @@ app.post("/whatsapp", async (req, res) => {
         "Perfecto 💛\n" +
         productos
           .map(
-            (p) =>
-              `• ${p.cantidad} x ${p.nombre} = $${p.cantidad * p.precio}`
+            (p) => `• ${p.cantidad} x ${p.nombre} = $${p.cantidad * p.precio}`
           )
           .join("\n") +
         "\n\n¿Algo más?"
