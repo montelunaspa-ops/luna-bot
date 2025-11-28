@@ -1,6 +1,6 @@
 // ===============================================
 //  Luna Bot - Delicias Monte Luna
-//  index.js (versión final para GPT-4o anti-loop)
+//  index.js (CON LOGS DEBUG COMPLETOS)
 // ===============================================
 
 import express from "express";
@@ -16,56 +16,122 @@ dotenv.config();
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
-// ===============================================
-// Ruta de prueba
-// ===============================================
+// ACTIVA LOGS GLOBALES
+const DEBUG = true;
+
+const log = (...args) => {
+  if (DEBUG) console.log("[LUNA DEBUG]", ...args);
+};
+
 app.get("/", (req, res) => {
-  res.send("Luna Bot está funcionando ✔️");
+  res.send("Luna Bot funcionando ✔️ (modo debug activo)");
 });
 
-// ===============================================
-// Extraer texto enviado por Whatauto
-// ===============================================
+// -----------------------------------------------
+// Extraer texto de Whatauto
+// -----------------------------------------------
 function extraerMensaje(body) {
-  return (
-    body?.message ||
-    body?.text ||
-    body?.mensaje ||
-    ""
-  );
+  return body?.message || body?.text || body?.mensaje || "";
 }
 
-// ===============================================
+// -----------------------------------------------
 // Guardar historial
-// ===============================================
+// -----------------------------------------------
 async function guardarHistorial(telefono, mensaje, respuesta) {
   try {
-    await supabase.from("historial").insert({
+    const { error } = await supabase.from("historial").insert({
       telefono,
       mensaje_usuario: mensaje,
       respuesta_bot: respuesta
     });
+
+    if (error) {
+      log("❌ ERROR guardando historial:", error);
+    } else {
+      log("✔ Historial guardado:", telefono, mensaje, respuesta);
+    }
   } catch (e) {
-    console.error("❌ Error guardando historial:", e);
+    log("❌ EXCEPCIÓN guardando historial:", e);
   }
 }
 
-// ===============================================
-// Obtener historial completo
-// ===============================================
-async function obtenerHistorial(telefono) {
-  const { data } = await supabase
-    .from("historial")
-    .select("*")
-    .eq("telefono", telefono)
-    .order("fecha", { ascending: true });
+// -----------------------------------------------
+// Webhook principal
+// -----------------------------------------------
+app.post("/whatsapp", async (req, res) => {
+  try {
+    log("===========================================");
+    log("📥 NUEVO MENSAJE RECIBIDO");
+    log("Payload crudo:", req.body);
 
-  return data || [];
-}
+    const telefono = req.body.from;
+    let mensajeOriginal = extraerMensaje(req.body);
 
-// ===============================================
-// Verificar cliente
-// ===============================================
+    log("👉 Mensaje original detectado:", mensajeOriginal);
+
+    // Audio
+    if (req.body?.audio) {
+      log("🎤 Nota de voz detectada, transcribiendo...");
+      const texto = await procesarAudio(req.body.audio);
+      log("📝 Transcripción:", texto);
+
+      if (texto) mensajeOriginal = texto;
+    }
+
+    const mensajeNormalizado = normalizar(mensajeOriginal);
+    log("🔤 Mensaje normalizado:", mensajeNormalizado);
+
+    // REGISTRO CLIENTE
+    log("🔎 Verificando cliente:", telefono);
+    let cliente = await verificarCliente(telefono);
+
+    if (!cliente) {
+      log("➕ Cliente nuevo. Registrando...");
+      await registrarCliente(telefono);
+      cliente = { telefono };
+    } else {
+      log("✔ Cliente existente:", cliente);
+    }
+
+    // REGLAS
+    log("📚 Cargando reglas...");
+    const reglas = await obtenerReglas();
+    log("📘 Reglas obtenidas:", reglas);
+
+    // HISTORIAL
+    log("📜 Obteniendo historial...");
+    const historial = await obtenerHistorial(telefono);
+    log("📜 Historial completo:", historial);
+
+    // GPT-4o
+    log("🤖 Enviando a GPT-4o...");
+    const respuesta = await responderGPT({
+      mensajeOriginal,
+      mensajeNormalizado,
+      reglas,
+      historial,
+      cliente
+    });
+
+    log("🤖 Respuesta GPT-4o:", respuesta);
+
+    // GUARDAR HISTORIAL
+    await guardarHistorial(telefono, mensajeOriginal, respuesta);
+
+    // RESPONDER A WHATAUTO
+    log("📤 Enviando respuesta final...");
+    return res.json({ reply: respuesta });
+
+  } catch (error) {
+    log("❌ ERROR GLOBAL:", error);
+    return res.json({ reply: "Lo siento, ocurrió un error inesperado 😓" });
+  }
+});
+
+// -----------------------------------------------
+// Cliente y auxiliar
+// -----------------------------------------------
+
 async function verificarCliente(telefono) {
   const { data } = await supabase
     .from("clientes_detallados")
@@ -76,90 +142,16 @@ async function verificarCliente(telefono) {
   return data;
 }
 
-// ===============================================
-// Registrar cliente nuevo
-// ===============================================
 async function registrarCliente(telefono) {
-  try {
-    await supabase.from("clientes_detallados").insert({
-      telefono,
-      es_cliente: false
-    });
-  } catch (e) {
-    console.error("❌ Error registrando cliente:", e);
-  }
+  await supabase.from("clientes_detallados").insert({
+    telefono,
+    es_cliente: false
+  });
 }
 
-// ===============================================
-//  WEBHOOK PRINCIPAL
-// ===============================================
-app.post("/whatsapp", async (req, res) => {
-  try {
-    const telefono = req.body.from;
-
-    // ==========================
-    // EXTRAER TEXTO O TRANSCRIBIR AUDIO
-    // ==========================
-    let mensajeOriginal = extraerMensaje(req.body);
-
-    if (req.body?.audio) {
-      const texto = await procesarAudio(req.body.audio);
-      if (texto) mensajeOriginal = texto;
-    }
-
-    const mensajeNormalizado = normalizar(mensajeOriginal);
-
-    // ==========================
-    // CARGAR REGLAS DESDE BD
-    // ==========================
-    const reglas = await obtenerReglas();
-
-    // ==========================
-    // VERIFICAR / REGISTRAR CLIENTE
-    // ==========================
-    let cliente = await verificarCliente(telefono);
-    if (!cliente) {
-      await registrarCliente(telefono);
-      cliente = { telefono };
-    }
-
-    // ==========================
-    // HISTORIAL COMPLETO
-    // ==========================
-    const historial = await obtenerHistorial(telefono);
-
-    // ==========================
-    // GPT-4o DECIDE ABSOLUTAMENTE TODO
-    // ==========================
-    const respuesta = await responderGPT({
-      mensajeOriginal,
-      mensajeNormalizado,
-      reglas,
-      historial,
-      cliente
-    });
-
-    // ==========================
-    // GUARDAR HISTORIAL
-    // ==========================
-    await guardarHistorial(telefono, mensajeOriginal, respuesta);
-
-    // ==========================
-    // RESPUESTA PARA WHATAUTO
-    // ==========================
-    return res.json({ reply: respuesta });
-
-  } catch (error) {
-    console.error("❌ Error en /whatsapp:", error);
-    return res.json({
-      reply: "Lo siento, ocurrió un error inesperado 😓"
-    });
-  }
-});
-
-// ===============================================
+// -----------------------------------------------
 // INICIAR SERVIDOR
-// ===============================================
+// -----------------------------------------------
 app.listen(process.env.PORT || 3000, () => {
-  console.log("✔ Luna Bot activo en puerto", process.env.PORT || 3000);
+  log("🚀 Luna Bot activo en puerto", process.env.PORT || 3000);
 });
