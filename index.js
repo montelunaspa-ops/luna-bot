@@ -29,9 +29,7 @@ app.post("/whatsapp", async (req, res) => {
   const { phone, message, type, mediaUrl } = req.body;
 
   if (!phone) {
-    return res.json({
-      reply: "No pude leer tu número 💛"
-    });
+    return res.json({ reply: "No pude leer tu número 💛" });
   }
 
   let texto = (message || "").toLowerCase().trim();
@@ -74,7 +72,7 @@ app.post("/whatsapp", async (req, res) => {
     return res.json({
       reply:
         rules.catalogo_completo +
-        "\n\n💛 ¿En qué comuna necesitas el despacho?"
+        "\n\n💛 ¿En qué comuna enviamos tu pedido?"
     });
   }
 
@@ -87,7 +85,7 @@ app.post("/whatsapp", async (req, res) => {
     });
   }
 
-  // ---------- 3. COMUNA AÚN NO DEFINIDA ----------
+  // ---------- 3. COMUNA AÚN NO DEFINIDA (BLOQUE CORREGIDO) ----------
   if (!cliente.comuna) {
 
     const comuna = validarComuna(texto);
@@ -116,9 +114,9 @@ app.post("/whatsapp", async (req, res) => {
     ) {
       return res.json({
         reply:
-          `Lo siento 💛, aún no tenemos reparto en *${texto}*.\n\n` +
+          `Lo siento 💛, no tenemos reparto en *${texto}*.\n\n` +
           `📍 Puedes retirar en: ${rules.retiro_domicilio}\n\n` +
-          "¿Deseas retirar en domicilio?"
+          "¿Deseas retiro?"
       });
     }
 
@@ -141,9 +139,11 @@ app.post("/whatsapp", async (req, res) => {
       });
     }
 
-    // Evita que GPT intervenga antes de tener comuna
+    // 🔧 **FIX: PERMITIR PREGUNTAS Y QUE GPT RESPONDA ANTES DE LA COMUNA**
+    const respuestaGPT = await responderGPT(texto, cliente);
+
     return res.json({
-      reply: "Para continuar necesito tu comuna 💛"
+      reply: `${respuestaGPT}\n\n💛 ¿En qué comuna enviamos tu pedido?`
     });
   }
 
