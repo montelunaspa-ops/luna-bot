@@ -95,4 +95,130 @@ app.post("/whatsapp", async (req, res) => {
   // 3. DETECCIÓN DIRECTA DE “CATÁLOGO”
   // ------------------------------------------------------
   const palabrasCatalogo = ["catalogo", "catálogo", "ver menu", "menu", "ver catálogo"];
-  if (palabrasCatalogo.some((p) => texto.includes
+  if (palabrasCatalogo.some((p) => texto.includes(p))) {
+    return res.json({
+      reply: rules.catalogo_completo
+    });
+  }
+
+  // ------------------------------------------------------
+  // 4. VALIDAR COMUNA — SIN BLOQUEAR EL FLUJO
+  // ------------------------------------------------------
+  if (!cliente.comuna) {
+    const comuna = validarComuna(texto);
+
+    // SI ES UNA COMUNA VÁLIDA → GUARDAR Y CONTINUAR
+    if (comuna.reparto) {
+      await supabase
+        .from("clientes_detallados")
+        .update({ comuna: texto })
+        .eq("whatsapp", whatsapp);
+
+      return res.json({
+        reply:
+          `Perfecto 💛 hacemos reparto en *${texto}*.\n` +
+          `Horario estimado: ${comuna.horario} hrs.\n\n` +
+          "¿Qué deseas pedir?"
+      });
+    }
+
+    // SI NO ES UNA COMUNA → RESPONDER PREGUNTA Y PEDIR COMUNA DE NUEVO
+    const respuesta = await responderGPT(texto, cliente);
+
+    return res.json({
+      reply:
+        `${respuesta}\n\nAntes de continuar, ¿en qué comuna necesitas el despacho?`
+    });
+  }
+
+  // ------------------------------------------------------
+  // 5. DETECCIÓN DE PRODUCTOS
+  // ------------------------------------------------------
+  const productos = detectarProducto(texto);
+
+  if (productos.length > 0) {
+    const nuevoCarrito = [...cliente.carrito, ...productos];
+
+    await supabase
+      .from("clientes_detallados")
+      .update({ carrito: nuevoCarrito })
+      .eq("whatsapp", whatsapp);
+
+    return res.json({
+      reply:
+        "Anotado 💛\n\n" +
+        productos
+          .map(
+            (p) =>
+              `• ${p.cantidad} x ${p.nombre} → $${p.cantidad * p.precio}`
+          )
+          .join("\n") +
+        "\n\n¿Algo más?"
+    });
+  }
+
+  // ------------------------------------------------------
+  // 6. RESUMEN DEL PEDIDO
+  // ------------------------------------------------------
+  if (
+    texto.includes("resumen") ||
+    texto.includes("ver pedido") ||
+    texto.includes("que pedí")
+  ) {
+    const { total, envio } = calcularResumen(cliente.carrito);
+
+    return res.json({
+      reply:
+        "Aquí tienes tu resumen 💛\n\n" +
+        cliente.carrito
+          .map(
+            (p) =>
+              `• ${p.cantidad} x ${p.nombre} = $${p.cantidad * p.precio}`
+          )
+          .join("\n") +
+        `\n\nTotal productos: $${total}\nEnvío: $${envio}\n\n¿Confirmas?`
+    });
+  }
+
+  // ------------------------------------------------------
+  // 7. CONFIRMACIÓN DEL PEDIDO
+  // ------------------------------------------------------
+  if (
+    texto.includes("confirmo") ||
+    texto.includes("acepto") ||
+    texto.includes("si confirmo")
+  ) {
+    const { total, envio } = calcularResumen(cliente.carrito);
+
+    await supabase.from("pedidos_completos").insert({
+      whatsapp,
+      comuna: cliente.comuna,
+      carrito: cliente.carrito,
+      total,
+      envio,
+      confirmado: true
+    });
+
+    // limpiar carrito
+    await supabase
+      .from("clientes_detallados")
+      .update({ carrito: [] })
+      .eq("whatsapp", whatsapp);
+
+    return res.json({
+      reply: "¡Perfecto! Tu pedido quedó agendado 💛\n✔️"
+    });
+  }
+
+  // ------------------------------------------------------
+  // 8. GPT COMO ÚLTIMA OPCIÓN
+  // ------------------------------------------------------
+  const respuesta = await responderGPT(texto, cliente);
+  return res.json({ reply: respuesta });
+});
+
+// ------------------------------------------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("🚀 Luna Bot listo en puerto:", PORT);
+});
