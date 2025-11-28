@@ -13,7 +13,6 @@ export async function transcribirAudio(fileUrl) {
 
     return res.text || "";
   } catch (e) {
-    console.log("Error transcribiendo:", e);
     return "";
   }
 }
