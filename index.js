@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 import { supabase } from "./supabaseClient.js";
 import { obtenerReglas } from "./lunaRules.js";
 import { normalizar } from "./normalize.js";
-import { procesarAudio } from "./audio.js";
 import { responderGPT } from "./gpt.js";
 
 dotenv.config();
@@ -12,12 +11,11 @@ const app = express();
 const DEBUG = true;
 const log = (...a) => DEBUG && console.log("[LUNA DEBUG]", ...a);
 
-// WhatsAuto envía TEXT + URLENCODED
+// WhatsAuto envía texto URLENCODED convertido a objeto
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: "*/*" }));
 app.use(express.json());
 
-// BD auxiliares
 async function obtenerHistorial(telefono) {
   const { data } = await supabase
     .from("historial")
@@ -58,45 +56,19 @@ app.post("/whatsapp", async (req, res) => {
     log("========================================");
     log("📩 RAW BODY:", req.body);
 
-    let phone = "";
-    let message = "";
-    let type = "";
-    let mediaUrl = "";
-
-    // Caso A → WHATAUTO envía como texto URLENCODED
-    if (typeof req.body === "string") {
-      const params = new URLSearchParams(req.body);
-      phone = decodeURIComponent(params.get("phone") || "");
-      message = decodeURIComponent(params.get("message") || "");
-      type = decodeURIComponent(params.get("type") || "");
-      mediaUrl = decodeURIComponent(params.get("mediaUrl") || "");
-    }
-
-    // Caso B → JSON
-    if (typeof req.body === "object") {
-      phone = req.body.phone || phone;
-      message = req.body.message || message;
-      type = req.body.type || type;
-      mediaUrl = req.body.mediaUrl || mediaUrl;
-    }
+    let phone = req.body.phone || "";
+    let message = req.body.message || "";
 
     log("👉 phone:", phone);
     log("👉 message:", message);
-    log("👉 type:", type);
-    log("👉 mediaUrl:", mediaUrl);
 
     if (!phone) {
       return res.json({ reply: "No pude identificar tu número 😓" });
     }
 
-    // Procesar notas de voz
-    if (type === "voice" && mediaUrl) {
-      message = await procesarAudio(mediaUrl);
-      log("🎤 Texto transcrito:", message);
-    }
-
-    const mensajeNormalizado = normalizar(message);
+    const msgNorm = normalizar(message);
     const reglas = await obtenerReglas();
+
     let cliente = await verificarCliente(phone);
 
     if (!cliente) {
@@ -108,7 +80,7 @@ app.post("/whatsapp", async (req, res) => {
 
     const respuesta = await responderGPT({
       mensajeOriginal: message,
-      mensajeNormalizado,
+      mensajeNormalizado: msgNorm,
       reglas,
       historial,
       cliente
