@@ -1,4 +1,4 @@
-// audio.js — Whisper para transcribir notas de voz
+// audio.js — Versión B (restaurada)
 import OpenAI from "openai";
 import dotenv from "dotenv";
 dotenv.config();
