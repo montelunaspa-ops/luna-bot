@@ -1,4 +1,3 @@
-// supabase.js — Versión B
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 dotenv.config();
