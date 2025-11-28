@@ -14,6 +14,17 @@ import { procesarAudio } from "./audio.js";
 dotenv.config();
 
 const app = express();
+// ===============================
+// 🔬 TEST DE DIAGNÓSTICO
+// CAPTURA TODO EL BODY TAL COMO LLEGA
+// ===============================
+app.use(express.text({ type: "*/*" }));
+
+app.use((req, res, next) => {
+  console.log("🧪 RAW BODY RECIBIDO (TEXTO):", req.body);
+  next();
+});
+
 app.use(express.json({ limit: "20mb" }));
 
 const DEBUG = true;
