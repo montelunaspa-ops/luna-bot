@@ -1,3 +1,7 @@
+// ===============================================
+//  Cargar TODAS las reglas del negocio desde Supabase
+// ===============================================
+
 import { supabase } from "./supabaseClient.js";
 
 export async function obtenerReglas() {
@@ -6,7 +10,7 @@ export async function obtenerReglas() {
     .select("rule_key, rule_value");
 
   if (error) {
-    console.error("Error cargando reglas:", error);
+    console.error("❌ Error cargando reglas:", error);
     return {};
   }
 
