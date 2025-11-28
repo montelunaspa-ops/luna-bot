@@ -43,6 +43,10 @@ export default {
   costo_envio: 2400,
 
   catalogo_completo: `
+¡Hola! Soy Luna, asistente virtual de Delicias Monte Luna. 🌙✨
+
+Puedes hacer tu pedido fácilmente por la página www.monteluna.cl o por WhatsApp con mi ayuda.
+
 🍰 *Queques Peruanos — $8.500*
 Sabores: Chocolate, Marmoleado, Piña, Vainilla, Naranja, Maracuyá
 Porciones: 14, 16 o sin cortar
