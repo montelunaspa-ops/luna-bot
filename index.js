@@ -1,6 +1,6 @@
 // ===============================================
 //  Luna Bot - Delicias Monte Luna
-//  index.js (GPT controla TODO)
+//  index.js (GPT-4o controla TODO)
 // ===============================================
 
 import express from "express";
@@ -11,25 +11,18 @@ import { normalizar } from "./normalize.js";
 import { responderGPT } from "./gpt.js";
 import { procesarAudio } from "./audio.js";
 
-
 dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
-// Probar servidor
 app.get("/", (req, res) => {
   res.send("Luna Bot está funcionando ✔️");
 });
 
-// Extraer mensaje Whatauto
+// Extraer texto del body Whatauto
 function extraerMensaje(body) {
-  return (
-    body?.message ||
-    body?.text ||
-    body?.mensaje ||
-    ""
-  );
+  return body?.message || body?.text || body?.mensaje || "";
 }
 
 // Guardar historial
@@ -41,7 +34,7 @@ async function guardarHistorial(telefono, mensaje, respuesta) {
   });
 }
 
-// Obtener historial
+// Obtener historial completo
 async function obtenerHistorial(telefono) {
   const { data } = await supabase
     .from("historial")
@@ -52,7 +45,7 @@ async function obtenerHistorial(telefono) {
   return data || [];
 }
 
-// Registrar cliente
+// Registrar cliente nuevo
 async function registrarCliente(telefono) {
   await supabase.from("clientes_detallados").insert({
     telefono,
@@ -71,35 +64,39 @@ async function verificarCliente(telefono) {
   return data;
 }
 
-// Webhook principal
+// ===============================================
+//  WEBHOOK PRINCIPAL
+// ===============================================
+
 app.post("/whatsapp", async (req, res) => {
   try {
     const telefono = req.body.from;
-let mensajeOriginal = extraerMensaje(req.body);
+    let mensajeOriginal = extraerMensaje(req.body);
 
-// Si viene audio → transcribirlo
-if (req.body?.audio) {
-  const transcrito = await procesarAudio(req.body.audio);
-  if (transcrito) {
-    mensajeOriginal = transcrito;
-  }
-}
+    // Si viene audio → transcribir con GPT-4o
+    if (req.body?.audio) {
+      const texto = await procesarAudio(req.body.audio);
+      if (texto && texto.length > 0) {
+        mensajeOriginal = texto;
+      }
+    }
+
     const mensajeNormalizado = normalizar(mensajeOriginal);
 
-    // Reglas desde Supabase
+    // Cargar reglas desde Supabase
     const reglas = await obtenerReglas();
 
-    // Cliente
+    // Verificar cliente
     let cliente = await verificarCliente(telefono);
     if (!cliente) {
       await registrarCliente(telefono);
       cliente = { telefono };
     }
 
-    // Historial completo
+    // Historial para GPT
     const historial = await obtenerHistorial(telefono);
 
-    // GPT decide TODO
+    // GPT decide absolutamente TODO
     const respuesta = await responderGPT({
       mensajeOriginal,
       mensajeNormalizado,
@@ -111,16 +108,5 @@ if (req.body?.audio) {
     // Guardar en historial
     await guardarHistorial(telefono, mensajeOriginal, respuesta);
 
-    // Responder Whatauto
-    return res.json({ reply: respuesta });
-
-  } catch (error) {
-    console.error("❌ Error en /whatsapp:", error);
-    return res.json({ reply: "Lo siento, ocurrió un error inesperado 😓" });
-  }
-});
-
-// Iniciar servidor
-app.listen(process.env.PORT || 3000, () => {
-  console.log("✔ Luna Bot activo en puerto", process.env.PORT || 3000);
-});
+    // Responder a Whatauto
+    return res.json({ reply: respuesta
