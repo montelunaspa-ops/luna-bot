@@ -18,7 +18,6 @@ export function detectarProducto(texto) {
   texto = texto.toLowerCase();
   const items = [];
 
-  // queques
   if (texto.includes("queque")) {
     let sabor = null;
     for (const s of catalogo.queques_peruanos.sabores) {
@@ -32,7 +31,6 @@ export function detectarProducto(texto) {
     });
   }
 
-  // bandejas
   for (const s of catalogo.bandejas.sabores) {
     if (texto.includes(s.toLowerCase())) {
       items.push({
@@ -43,7 +41,6 @@ export function detectarProducto(texto) {
     }
   }
 
-  // muffins
   if (texto.includes("chips")) {
     items.push({
       nombre: "Muffin Chips (6u)",
