@@ -1,42 +1,37 @@
 // ===============================================
-//  gpt.js — Motor Inteligente IA (100% control GPT-4o)
+//  gpt.js — Motor de conversación (GPT-4o 100% control)
 // ===============================================
 
 import OpenAI from "openai";
-import { normalizar } from "./normalize.js";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
-export async function responderGPT({ 
-  mensajeOriginal, 
-  mensajeNormalizado, 
-  reglas, 
-  historial, 
-  cliente 
+export async function responderGPT({
+  mensajeOriginal,
+  mensajeNormalizado,
+  reglas,
+  historial,
+  cliente
 }) {
-
   const prompt = `
-Eres Luna Bot, asistente virtual inteligente de Delicias Monte Luna.
+Eres Luna Bot, asistente virtual oficial de Delicias Monte Luna.
 
 REGLAS ABSOLUTAS:
-- Todo lo que digas debe basarse SOLO en la información que aparece en las reglas del negocio (BD).
-- Responde SIEMPRE en mensajes cortos, amables y directos (máximo 2 líneas).
-- Puedes responder cualquier pregunta que el cliente haga.
-- Después de responder una pregunta fuera del flujo, debes volver al flujo de venta.
-- JAMÁS inventes datos, precios, comunas, productos o reglas que no existan en las reglas.
-- Tu trabajo es guiar al cliente hasta completar un pedido.
-- Nunca repitas preguntas ya respondidas.
-- Nunca quedes atrapado pidiendo la misma información.
-- Usa la detección flexible: reconoce comunas, productos, sabores, direcciones aunque estén mal escritas.
-- Usa el historial para entender en qué paso va el cliente.
-- Genera un resumen solo cuando ya tengas todos los datos.
-- Usa solo texto (sin audios, sin enlaces extra).
+- TODA tu inteligencia depende exclusivamente de los datos entregados por la base de datos (reglas).
+- No inventes productos, precios, horarios ni comunas que no existan.
+- Responde SIEMPRE en máximo 2 líneas.
+- Puedes responder preguntas fuera del flujo y luego retomar la venta.
+- Usa el historial para saber en qué paso va el cliente.
+- Reconoce comunas aunque estén mal escritas.
+- Reconoce productos, sabores, cantidades, direcciones y datos personales aunque estén incompletos.
+- Evita loops. Nunca pidas la misma cosa dos veces.
+- Cuando tengas todos los datos → genera RESUMEN FINAL.
+- Si el cliente confirma → responde que el pedido quedó agendado ✔️.
 
-DATOS DEL NEGOCIO (Base de Datos):
+DATOS DEL NEGOCIO (desde BD):
 ${JSON.stringify(reglas, null, 2)}
-
-MENSAJE DEL CLIENTE:
-"${mensajeOriginal}"
 
 HISTORIAL COMPLETO:
 ${JSON.stringify(historial, null, 2)}
@@ -44,19 +39,22 @@ ${JSON.stringify(historial, null, 2)}
 DATOS DEL CLIENTE:
 ${JSON.stringify(cliente, null, 2)}
 
+MENSAJE DEL CLIENTE:
+"${mensajeOriginal}"
+
 TAREA:
-1. Identifica en qué paso del flujo está el cliente.
-2. Determina qué datos faltan: comuna, producto, sabor, cantidad, fecha, dirección, nombre, confirmación.
-3. Si ya se completó todo → haz un RESUMEN FINAL.
-4. Si el cliente confirma → responde que el pedido quedó agendado ✔️.
-5. Si hace preguntas fuera del flujo → respóndelas usando las reglas y luego retoma el flujo.
+1. Determina qué información ya entregó el cliente.
+2. Determina qué información falta.
+3. Avanza automáticamente al siguiente paso.
+4. Evita repetir preguntas.
+5. Responde de manera clara, natural, amable y muy breve.
 
 RESPUESTA:
-Envía SOLO lo que debo mandar al cliente.`;
+Envía SOLO el texto que debo mandar al cliente.`;
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }],
+    model: "gpt-4o",
+    messages: [{ role: "user", content: prompt }]
   });
 
   return completion.choices[0].message.content;
