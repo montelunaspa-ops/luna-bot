@@ -1,104 +1,66 @@
-// index.js — versión final para Luna Bot
 import express from "express";
-import bodyParser from "body-parser";
-import dotenv from "dotenv";
-dotenv.config();
-
-import { supabase } from "./supabase.js";
-import { transcribirAudio } from "./audio.js";
+import { supabase } from "./supabaseClient.js";
 import { responderGPT } from "./gpt.js";
+import { extraerMensaje } from "./audio.js";
+import { limpiarMensaje } from "./format.js";
+import { obtenerContextoFlujo } from "./flow.js";
 
 const app = express();
-app.use(bodyParser.json({ limit: "20mb" }));
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json());
 
-/* -------------------------------------------------------
-   📌 ENDPOINT PRINCIPAL WHATSAPP (WhatsAuto)
--------------------------------------------------------- */
 app.post("/whatsapp", async (req, res) => {
   try {
-    console.log("📩 Mensaje recibido:", req.body);
+    const body = req.body;
+    const telefono = body.from;
+    const mensaje = limpiarMensaje(extraerMensaje(body));
 
-    const { phone, message, type, mediaUrl } = req.body;
-
-    if (!phone) {
-      return res.json({ reply: "No pude leer tu número 💛 intenta nuevamente." });
-    }
-
-    let textoMensaje = message?.trim() || "";
-    const from = phone;
-
-    /* -------------------------------------------------------
-       🎤 Si es una nota de voz → convertir a texto
-    -------------------------------------------------------- */
-    if (type === "voice" && mediaUrl) {
-      console.log("🎙 Nota de voz detectada, transcribiendo…");
-      try {
-        textoMensaje = await transcribirAudio(mediaUrl);
-        console.log("📝 Texto transcrito:", textoMensaje);
-      } catch (err) {
-        textoMensaje = "[audio no entendido]";
-      }
-    }
-
-    /* -------------------------------------------------------
-       👤 Buscar cliente o crear si es nuevo
-    -------------------------------------------------------- */
     let { data: cliente } = await supabase
       .from("clientes_detallados")
       .select("*")
-      .eq("whatsapp", from)
+      .eq("telefono", telefono)
       .single();
 
-    let clienteNuevo = false;
-
     if (!cliente) {
-      console.log("🆕 Cliente nuevo. Registrando…");
-      const { data: nuevo, error: errInsert } = await supabase
+      const nuevo = {
+        telefono: telefono,
+        es_cliente: false,
+        fecha_registro: new Date(),
+      };
+
+      const { data: insertado } = await supabase
         .from("clientes_detallados")
-        .insert({ whatsapp: from })
+        .insert(nuevo)
         .select()
         .single();
 
-      if (errInsert) {
-        console.error("❌ Error al crear cliente:", errInsert);
-        return res.json({ reply: "Hubo un error al registrarte 💛 intenta nuevamente." });
-      }
-
-      cliente = nuevo;
-      clienteNuevo = true;
+      cliente = insertado;
     }
 
-    /* -------------------------------------------------------
-       🧠 RESPUESTA GPT (maneja flujo y preguntas libres)
-    -------------------------------------------------------- */
-    const respuestaGPT = await responderGPT(textoMensaje, cliente);
+    const { data: historial } = await supabase
+      .from("historial")
+      .select("*")
+      .eq("telefono", telefono)
+      .order("fecha", { ascending: true });
 
-    /* -------------------------------------------------------
-       📝 Guardar historial
-    -------------------------------------------------------- */
+    const contexto = obtenerContextoFlujo(historial || []);
+
+    const respuesta = await responderGPT(mensaje, cliente, contexto);
+
     await supabase.from("historial").insert({
-      whatsapp: from,
-      mensaje_cliente: textoMensaje,
-      respuesta_luna: respuestaGPT
+      telefono,
+      mensaje_usuario: mensaje,
+      respuesta_bot: respuesta,
+      fecha: new Date(),
     });
 
-    /* -------------------------------------------------------
-       📤 Enviar respuesta al cliente
-    -------------------------------------------------------- */
-    return res.json({ reply: respuestaGPT });
+    res.json({ reply: respuesta });
+
   } catch (error) {
-    console.error("❌ Error general:", error);
-    return res.json({
-      reply: "Hubo un problema inesperado 💛 por favor intenta nuevamente."
-    });
+    console.error("LunaBot Error:", error);
+    return res.json({ reply: "Ocurrió un error, intenta nuevamente." });
   }
 });
 
-/* -------------------------------------------------------
-   SERVIDOR
--------------------------------------------------------- */
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log(`🚀 Luna Bot listo y escuchando en puerto ${PORT}`)
+app.listen(process.env.PORT || 3000, () =>
+  console.log("Luna Bot corriendo...")
 );
