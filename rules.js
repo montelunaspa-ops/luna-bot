@@ -1,36 +1,5 @@
-// rules.js — Información oficial del negocio
 export default {
-  intro: "Eres Luna 💛 asistente virtual. Responde corto, amable y solo con la información oficial.",
-
-  catalogo_completo: `
-🍰 *Queques Peruanos — $8.500*
-Sabores: Chocolate, Marmoleado, Piña, Vainilla, Naranja, Maracuyá
-Porciones: 14, 16 o sin cortar
-
-🍪 *Bandejas de 20 unidades — $4.000*
-• Rellena de Manjar
-• Alemana
-• Giro Coco
-• Almejitas
-• Lengua de Gato
-• Cocadas de Horno
-• Alfajorcito
-• Cachitos
-
-🧁 *Muffins*
-• Chips (6u): $3.500
-• Surtidos Premium (6u): $5.000
-
-🤩 *Delicias Premium*
-• Alfajores Premium de Maicena (12u): $6.000
-• Cachitos Manjar Premium (10u): $6.000
-
-📦 *Queque Artesanal Rectangular — $3.000*
-Sabores: Vainilla Chips, Manzana, Arándanos
-Oferta: 4 por $10.000
-
-💛 Las entregas son al día siguiente (excepto domingo).
-`,
+  retiro_domicilio: "Calle Chacabuco 1120, Santiago Centro",
 
   comunas: [
     "cerro navia",
@@ -72,6 +41,27 @@ Oferta: 4 por $10.000
 
   despacho_gratis: 14990,
   costo_envio: 2400,
-  retiro_domicilio: "Calle Chacabuco 1120, Santiago Centro",
-  metodos_pago: "Efectivo o Débito"
+
+  catalogo_completo: `
+🍰 *Queques Peruanos — $8.500*
+Sabores: Chocolate, Marmoleado, Piña, Vainilla, Naranja, Maracuyá
+Porciones: 14, 16 o sin cortar
+
+🍪 *Bandejas de 20 unidades — $4.000*
+Manjar, Alemana, Giro coco, Almejitas, Lengua de gato, Cocadas, Alfajorcito, Cachitos
+
+🧁 *Muffins*
+Chips (6u): $3.500
+Surtidos premium (6u): $5.000
+
+🤩 *Delicias Premium*
+Alfajores de Maicena (12u): $6.000
+Cachitos Manjar Premium (10u): $6.000
+
+📦 *Queque Artesanal Rectangular — $3.000*
+Sabores: Vainilla Chips, Manzana, Arándanos
+Oferta: 4 por $10.000
+
+💛 Entregas al día siguiente (excepto domingo).
+`
 };
