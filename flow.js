@@ -4,17 +4,17 @@ export function obtenerContextoFlujo(historial) {
     tieneProducto: false,
     tieneCantidad: false,
     tieneFecha: false,
+    tieneDireccion: false,
+    tieneNombre: false
   };
 
-  const texto = historial
-    .map(h => h.mensaje_usuario + " " + h.respuesta_bot)
-    .join(" ")
-    .toLowerCase();
+  const ult = historial[historial.length - 1]?.mensaje_usuario?.toLowerCase() || "";
 
-  if (texto.includes("comuna")) contexto.tieneComuna = true;
-  if (texto.includes("queque") || texto.includes("alfajor") || texto.includes("muffin")) contexto.tieneProducto = true;
-  if (texto.includes("unidad") || texto.includes("unidades")) contexto.tieneCantidad = true;
-  if (texto.includes("entrega") || texto.includes("mañana")) contexto.tieneFecha = true;
+  if (ult.includes("santiago") || ult.includes("maipu") || ult.includes("conchali")) contexto.tieneComuna = true;
+  if (ult.includes("queque") || ult.includes("muffin") || ult.includes("galleta") || ult.includes("alfajor")) contexto.tieneProducto = true;
+  if (ult.match(/\b\d+\b/)) contexto.tieneCantidad = true;
+  if (ult.includes("calle") || ult.includes("av") || ult.includes("direccion")) contexto.tieneDireccion = true;
+  if (ult.split(" ").length >= 2 && ult.match(/[a-z]/)) contexto.tieneNombre = true;
 
   return contexto;
 }
