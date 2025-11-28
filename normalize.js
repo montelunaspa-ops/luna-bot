@@ -1,7 +1,3 @@
-// ===============================================
-//  Normaliza textos para hacer IA más robusta
-// ===============================================
-
 export function normalizar(texto) {
   return texto
     ?.toString()
