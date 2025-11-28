@@ -9,6 +9,8 @@ import { supabase } from "./supabaseClient.js";
 import { obtenerReglas } from "./lunaRules.js";
 import { normalizar } from "./normalize.js";
 import { responderGPT } from "./gpt.js";
+import { procesarAudio } from "./audio.js";
+
 
 dotenv.config();
 
@@ -73,7 +75,15 @@ async function verificarCliente(telefono) {
 app.post("/whatsapp", async (req, res) => {
   try {
     const telefono = req.body.from;
-    const mensajeOriginal = extraerMensaje(req.body);
+let mensajeOriginal = extraerMensaje(req.body);
+
+// Si viene audio → transcribirlo
+if (req.body?.audio) {
+  const transcrito = await procesarAudio(req.body.audio);
+  if (transcrito) {
+    mensajeOriginal = transcrito;
+  }
+}
     const mensajeNormalizado = normalizar(mensajeOriginal);
 
     // Reglas desde Supabase
