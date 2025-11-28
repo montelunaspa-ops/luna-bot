@@ -1,6 +1,6 @@
 // ===============================================
 //  Luna Bot - Delicias Monte Luna
-//  index.js (GPT-4o controla TODO)
+//  index.js (versión final para GPT-4o anti-loop)
 // ===============================================
 
 import express from "express";
@@ -39,15 +39,19 @@ function extraerMensaje(body) {
 // Guardar historial
 // ===============================================
 async function guardarHistorial(telefono, mensaje, respuesta) {
-  await supabase.from("historial").insert({
-    telefono,
-    mensaje_usuario: mensaje,
-    respuesta_bot: respuesta
-  });
+  try {
+    await supabase.from("historial").insert({
+      telefono,
+      mensaje_usuario: mensaje,
+      respuesta_bot: respuesta
+    });
+  } catch (e) {
+    console.error("❌ Error guardando historial:", e);
+  }
 }
 
 // ===============================================
-// Obtener historial
+// Obtener historial completo
 // ===============================================
 async function obtenerHistorial(telefono) {
   const { data } = await supabase
@@ -60,17 +64,7 @@ async function obtenerHistorial(telefono) {
 }
 
 // ===============================================
-// Registrar cliente nuevo
-// ===============================================
-async function registrarCliente(telefono) {
-  await supabase.from("clientes_detallados").insert({
-    telefono,
-    es_cliente: false
-  });
-}
-
-// ===============================================
-// Verificar cliente existente
+// Verificar cliente
 // ===============================================
 async function verificarCliente(telefono) {
   const { data } = await supabase
@@ -83,16 +77,31 @@ async function verificarCliente(telefono) {
 }
 
 // ===============================================
-//   WEBHOOK PRINCIPAL
+// Registrar cliente nuevo
+// ===============================================
+async function registrarCliente(telefono) {
+  try {
+    await supabase.from("clientes_detallados").insert({
+      telefono,
+      es_cliente: false
+    });
+  } catch (e) {
+    console.error("❌ Error registrando cliente:", e);
+  }
+}
+
+// ===============================================
+//  WEBHOOK PRINCIPAL
 // ===============================================
 app.post("/whatsapp", async (req, res) => {
   try {
     const telefono = req.body.from;
 
-    // ⬇️ mensaje inicial
+    // ==========================
+    // EXTRAER TEXTO O TRANSCRIBIR AUDIO
+    // ==========================
     let mensajeOriginal = extraerMensaje(req.body);
 
-    // ⬇️ si viene audio, transcribirlo con GPT-4o
     if (req.body?.audio) {
       const texto = await procesarAudio(req.body.audio);
       if (texto) mensajeOriginal = texto;
@@ -100,20 +109,28 @@ app.post("/whatsapp", async (req, res) => {
 
     const mensajeNormalizado = normalizar(mensajeOriginal);
 
-    // ⬇️ cargar reglas
+    // ==========================
+    // CARGAR REGLAS DESDE BD
+    // ==========================
     const reglas = await obtenerReglas();
 
-    // ⬇️ cliente
+    // ==========================
+    // VERIFICAR / REGISTRAR CLIENTE
+    // ==========================
     let cliente = await verificarCliente(telefono);
     if (!cliente) {
       await registrarCliente(telefono);
       cliente = { telefono };
     }
 
-    // ⬇️ historial completo
+    // ==========================
+    // HISTORIAL COMPLETO
+    // ==========================
     const historial = await obtenerHistorial(telefono);
 
-    // ⬇️ GPT-4o responde TODO
+    // ==========================
+    // GPT-4o DECIDE ABSOLUTAMENTE TODO
+    // ==========================
     const respuesta = await responderGPT({
       mensajeOriginal,
       mensajeNormalizado,
@@ -122,19 +139,26 @@ app.post("/whatsapp", async (req, res) => {
       cliente
     });
 
-    // ⬇️ guardar historial
+    // ==========================
+    // GUARDAR HISTORIAL
+    // ==========================
     await guardarHistorial(telefono, mensajeOriginal, respuesta);
 
+    // ==========================
+    // RESPUESTA PARA WHATAUTO
+    // ==========================
     return res.json({ reply: respuesta });
 
   } catch (error) {
     console.error("❌ Error en /whatsapp:", error);
-    return res.json({ reply: "Lo siento, ocurrió un error inesperado 😓" });
+    return res.json({
+      reply: "Lo siento, ocurrió un error inesperado 😓"
+    });
   }
 });
 
 // ===============================================
-//   INICIAR SERVIDOR
+// INICIAR SERVIDOR
 // ===============================================
 app.listen(process.env.PORT || 3000, () => {
   console.log("✔ Luna Bot activo en puerto", process.env.PORT || 3000);
