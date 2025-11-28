@@ -1,9 +1,8 @@
 export function normalizar(texto) {
+  if (!texto) return "";
   return texto
-    ?.toString()
-    ?.normalize("NFD")
-    ?.replace(/[\u0300-\u036f]/g, "")
-    ?.replace(/\s+/g, " ")
-    ?.trim()
-    ?.toLowerCase();
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 }
