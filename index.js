@@ -1,4 +1,5 @@
-// index.js
+// index.js — VERSIÓN 100% ESTABLE
+
 import express from "express";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
@@ -7,6 +8,7 @@ dotenv.config();
 import { supabase } from "./supabase.js";
 import { transcribirAudio } from "./audio.js";
 import { responderGPT } from "./gpt.js";
+
 import rules from "./rules.js";
 import catalogo from "./catalogo.js";
 import {
@@ -19,10 +21,16 @@ const app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// ------------------------------------------------------
+// HOME
+// ------------------------------------------------------
 app.get("/", (req, res) => {
-  res.send("🚀 Luna Bot está funcionando correctamente.");
+  res.send("🚀 Luna Bot funcionando correctamente 💛");
 });
 
+// ------------------------------------------------------
+// BOT PRINCIPAL
+// ------------------------------------------------------
 app.post("/whatsapp", async (req, res) => {
   console.log("📩 Mensaje recibido:", req.body);
 
@@ -30,87 +38,111 @@ app.post("/whatsapp", async (req, res) => {
 
   if (!phone) {
     return res.json({
-      reply: "No pude leer tu número 💛. Revisa la configuración de WhatsAuto."
+      reply:
+        "No pude leer tu número 💛. Revisa la configuración de WhatsAuto (activa 'enviar número del remitente')."
     });
   }
 
-  const from = phone.trim();
-  let texto = message || "";
+  let texto = (message || "").trim().toLowerCase();
+  const whatsapp = phone.trim();
 
+  // TRANSCRIPCIÓN
   if (type === "voice" && mediaUrl) {
-    texto = await transcribirAudio(mediaUrl);
+    texto = (await transcribirAudio(mediaUrl)).toLowerCase();
   }
 
-  // BUSCAR CLIENTE
+  // ------------------------------------------------------
+  // BUSCAR O CREAR CLIENTE
+  // ------------------------------------------------------
   let { data: cliente } = await supabase
     .from("clientes_detallados")
     .select("*")
-    .eq("whatsapp", from)
+    .eq("whatsapp", whatsapp)
     .single();
 
-  let nuevo = false;
+  let nuevoCliente = false;
 
   if (!cliente) {
-    const { data, error } = await supabase
+    const { data: c } = await supabase
       .from("clientes_detallados")
       .insert({
-        whatsapp: from,
+        whatsapp,
         comuna: null,
         carrito: []
       })
       .select()
       .single();
 
-    if (error) {
-      return res.json({ reply: "Error registrándote 💛. Intenta de nuevo." });
-    }
-
-    cliente = data;
-    nuevo = true;
+    cliente = c;
+    nuevoCliente = true;
   }
 
-  // CLIENTE NUEVO → CATÁLOGO
-  if (nuevo) {
+  // ------------------------------------------------------
+  // 1. CLIENTE NUEVO → ENVIAR CATÁLOGO + PEDIR COMUNA
+  // ------------------------------------------------------
+  if (nuevoCliente) {
     return res.json({
-      reply: rules.mensaje_bienvenida + "\n\n¿En qué comuna necesitas el despacho?"
+      reply:
+        rules.mensaje_bienvenida +
+        "\n\n¿En qué comuna necesitas el despacho?"
     });
   }
 
-  // VALIDAR COMUNA
+  // ------------------------------------------------------
+  // ATAJAR PREGUNTAS COMO “CATÁLOGO”, “VER CATÁLOGO”, ETC.
+  // (ANTES DE CUALQUIER OTRA LÓGICA)
+  // ------------------------------------------------------
+  const palabrasCatalogo = ["catalogo", "catálogo", "ver", "menu"];
+  if (palabrasCatalogo.some((p) => texto.includes(p))) {
+    return res.json({
+      reply: rules.catalogo_completo
+    });
+  }
+
+  // ------------------------------------------------------
+  // 2. VALIDAR COMUNA
+  // ------------------------------------------------------
   if (!cliente.comuna) {
     const c = validarComuna(texto);
 
-    if (c.reparto) {
-      await supabase
-        .from("clientes_detallados")
-        .update({ comuna: texto.toLowerCase() })
-        .eq("whatsapp", from);
-
+    if (!c.reparto) {
       return res.json({
-        reply: `Perfecto 💛 hacemos reparto en *${texto}*. Horario estimado ${c.horario}. ¿Qué deseas pedir?`
+        reply:
+          `Por ahora no tenemos reparto en *${texto}* 😔\n\n` +
+          `Puedes retirar en:\n${rules.retiro_domicilio}\n\n` +
+          "¿Deseas retirar?"
       });
     }
 
+    await supabase
+      .from("clientes_detallados")
+      .update({ comuna: texto })
+      .eq("whatsapp", whatsapp);
+
     return res.json({
       reply:
-        `Aún no llegamos a *${texto}* 😢\n` +
-        `Pero puedes retirar en:\n${rules.retiro_domicilio}\n\n¿Deseas retirar?`
+        `Perfecto 💛 hacemos reparto en *${texto}*.\n` +
+        `Horario estimado: ${c.horario} hrs.\n\n` +
+        "¿Qué deseas pedir?"
     });
   }
 
-  // DETECTAR PRODUCTOS
+  // ------------------------------------------------------
+  // 3. DETECTAR SI SON PRODUCTOS
+  // ------------------------------------------------------
   const productos = detectarProducto(texto);
+
   if (productos.length > 0) {
     const nuevoCarrito = [...cliente.carrito, ...productos];
 
     await supabase
       .from("clientes_detallados")
       .update({ carrito: nuevoCarrito })
-      .eq("whatsapp", from);
+      .eq("whatsapp", whatsapp);
 
     return res.json({
       reply:
-        "Anotado 💛\n" +
+        "Anotado 💛\n\n" +
         productos
           .map(
             (p) =>
@@ -121,13 +153,15 @@ app.post("/whatsapp", async (req, res) => {
     });
   }
 
-  // RESUMEN
-  if (texto.toLowerCase().includes("resumen")) {
+  // ------------------------------------------------------
+  // 4. RESUMEN
+  // ------------------------------------------------------
+  if (texto.includes("resumen") || texto.includes("ver pedido")) {
     const { total, envio } = calcularResumen(cliente.carrito);
 
     return res.json({
       reply:
-        "Aquí va tu resumen 💛\n\n" +
+        "Aquí tienes tu resumen 💛\n\n" +
         cliente.carrito
           .map(
             (p) =>
@@ -138,15 +172,18 @@ app.post("/whatsapp", async (req, res) => {
     });
   }
 
-  // CONFIRMAR
+  // ------------------------------------------------------
+  // 5. CONFIRMAR PEDIDO
+  // ------------------------------------------------------
   if (
-    texto.toLowerCase().includes("confirmo") ||
-    texto.toLowerCase().includes("acepto")
+    texto.includes("confirmo") ||
+    texto.includes("acepto") ||
+    texto.includes("sí") && texto.includes("confirmo")
   ) {
     const { total, envio } = calcularResumen(cliente.carrito);
 
     await supabase.from("pedidos_completos").insert({
-      whatsapp: from,
+      whatsapp,
       comuna: cliente.comuna,
       carrito: cliente.carrito,
       total,
@@ -154,15 +191,26 @@ app.post("/whatsapp", async (req, res) => {
       confirmado: true
     });
 
+    // limpiar carrito
+    await supabase
+      .from("clientes_detallados")
+      .update({ carrito: [] })
+      .eq("whatsapp", whatsapp);
+
     return res.json({
       reply: "¡Perfecto! Tu pedido quedó agendado 💛\n✔️"
     });
   }
 
-  // GPT
+  // ------------------------------------------------------
+  // 6. SI NO ENTRA EN NINGUNA LÓGICA → GPT RESPONDE
+  // ------------------------------------------------------
   const respuesta = await responderGPT(texto, cliente);
   return res.json({ reply: respuesta });
 });
 
+// ------------------------------------------------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("🚀 Luna Bot en puerto " + PORT));
+app.listen(PORT, () => {
+  console.log("🚀 Luna Bot listo en puerto:", PORT);
+});
