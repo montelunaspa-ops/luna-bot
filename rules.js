@@ -128,6 +128,7 @@ Oferta 4 unidades = $10.000
   reglas_envio: {
     despacho_gratis: 14990,
     costo_envio: 2400,
+    domicilio: "Calle Chacabuco 1120, Santiago Centro",
     domicilio_retiro: "Calle Chacabuco 1120, Santiago Centro",
     dias_sin_envio: ["domingo"],
     pago: ["efectivo", "débito"],
