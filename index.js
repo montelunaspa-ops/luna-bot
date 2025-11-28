@@ -1,73 +1,41 @@
-// ======================================================
-// Luna Bot - Compatible 100% con WhatsAuto
-// GPT-4o controla todo el flujo, sin loops
-// ======================================================
-
 import express from "express";
 import dotenv from "dotenv";
 import { supabase } from "./supabaseClient.js";
 import { obtenerReglas } from "./lunaRules.js";
 import { normalizar } from "./normalize.js";
-import { responderGPT } from "./gpt.js";
 import { procesarAudio } from "./audio.js";
+import { responderGPT } from "./gpt.js";
 
 dotenv.config();
 
 const app = express();
-// ===============================
-// 🔬 TEST DE DIAGNÓSTICO
-// CAPTURA TODO EL BODY TAL COMO LLEGA
-// ===============================
-app.use(express.text({ type: "*/*" }));
-
-app.use((req, res, next) => {
-  console.log("🧪 RAW BODY RECIBIDO (TEXTO):", req.body);
-  next();
-});
-
-app.use(express.json({ limit: "20mb" }));
-
 const DEBUG = true;
 const log = (...a) => DEBUG && console.log("[LUNA DEBUG]", ...a);
 
-// ======================================================
-// Función para guardar historial
-// ======================================================
-async function guardarHistorial(telefono, mensaje, respuesta) {
-  try {
-    await supabase.from("historial").insert({
-      telefono,
-      mensaje_usuario: mensaje,
-      respuesta_bot: respuesta
-    });
-    log("✔ Historial guardado");
-  } catch (error) {
-    console.error("❌ Error guardando historial:", error);
-  }
-}
+// WhatsAuto envía TEXT + URLENCODED
+app.use(express.urlencoded({ extended: true }));
+app.use(express.text({ type: "*/*" }));
+app.use(express.json());
 
-// ======================================================
-// Obtener historial del cliente
-// ======================================================
+// BD auxiliares
 async function obtenerHistorial(telefono) {
-  try {
-    const { data } = await supabase
-      .from("historial")
-      .select("*")
-      .eq("telefono", telefono)
-      .order("fecha", { ascending: true });
+  const { data } = await supabase
+    .from("historial")
+    .select("*")
+    .eq("telefono", telefono)
+    .order("fecha", { ascending: true });
 
-    log("📜 Historial obtenido:", data);
-    return data || [];
-  } catch (error) {
-    log("❌ Error historial:", error);
-    return [];
-  }
+  return data || [];
 }
 
-// ======================================================
-// Verificar cliente
-// ======================================================
+async function guardarHistorial(telefono, msg, bot) {
+  await supabase.from("historial").insert({
+    telefono,
+    mensaje_usuario: msg,
+    respuesta_bot: bot
+  });
+}
+
 async function verificarCliente(telefono) {
   const { data } = await supabase
     .from("clientes_detallados")
@@ -78,9 +46,6 @@ async function verificarCliente(telefono) {
   return data;
 }
 
-// ======================================================
-// Registrar cliente nuevo
-// ======================================================
 async function registrarCliente(telefono) {
   await supabase.from("clientes_detallados").insert({
     telefono,
@@ -88,111 +53,81 @@ async function registrarCliente(telefono) {
   });
 }
 
-// ======================================================
-// RUTA PRINCIPAL – WHATS AUTO → BOT
-// ======================================================
 app.post("/whatsapp", async (req, res) => {
   try {
     log("========================================");
-    log("📩 WHATS AUTO PAYLOAD:", req.body);
+    log("📩 RAW BODY:", req.body);
 
-    // WhatsAuto envía:
-    // {
-    //   phone: "+56911111111",
-    //   message: "Hola",
-    //   type: "text" | "voice",
-    //   mediaUrl: "https://audio.ogg"
-    // }
+    let phone = "";
+    let message = "";
+    let type = "";
+    let mediaUrl = "";
 
-    const { phone, message, type, mediaUrl } = req.body;
+    // Caso A → WHATAUTO envía como texto URLENCODED
+    if (typeof req.body === "string") {
+      const params = new URLSearchParams(req.body);
+      phone = decodeURIComponent(params.get("phone") || "");
+      message = decodeURIComponent(params.get("message") || "");
+      type = decodeURIComponent(params.get("type") || "");
+      mediaUrl = decodeURIComponent(params.get("mediaUrl") || "");
+    }
+
+    // Caso B → JSON
+    if (typeof req.body === "object") {
+      phone = req.body.phone || phone;
+      message = req.body.message || message;
+      type = req.body.type || type;
+      mediaUrl = req.body.mediaUrl || mediaUrl;
+    }
+
+    log("👉 phone:", phone);
+    log("👉 message:", message);
+    log("👉 type:", type);
+    log("👉 mediaUrl:", mediaUrl);
 
     if (!phone) {
-      log("❌ ERROR: WhatsAuto NO envió el número del cliente.");
-      return res.json({
-        reply: "No pude identificar tu número. Intenta de nuevo por favor 🙏"
-      });
+      return res.json({ reply: "No pude identificar tu número 😓" });
     }
 
-    log("👉 Teléfono:", phone);
-    log("👉 Tipo:", type);
-    log("👉 Mensaje:", message);
-
-    // ===============================================
-    // Convertir audio a texto
-    // ===============================================
-    let mensajeOriginal = message || "";
-
+    // Procesar notas de voz
     if (type === "voice" && mediaUrl) {
-      log("🎤 Nota de voz recibida. Transcribiendo:", mediaUrl);
-
-      mensajeOriginal = await procesarAudio(mediaUrl);
-      log("📝 Texto transcrito:", mensajeOriginal);
+      message = await procesarAudio(mediaUrl);
+      log("🎤 Texto transcrito:", message);
     }
 
-    const mensajeNormalizado = normalizar(mensajeOriginal);
-
-    // ===============================================
-    // REGLAS DEL NEGOCIO
-    // ===============================================
+    const mensajeNormalizado = normalizar(message);
     const reglas = await obtenerReglas();
-    log("📘 Reglas cargadas");
-
-    // ===============================================
-    // VERIFICAR CLIENTE
-    // ===============================================
     let cliente = await verificarCliente(phone);
 
     if (!cliente) {
-      log("➕ Nuevo cliente. Registrando:", phone);
       await registrarCliente(phone);
       cliente = { telefono: phone };
-    } else {
-      log("✔ Cliente encontrado");
     }
 
-    // ===============================================
-    // HISTORIAL DEL CLIENTE
-    // ===============================================
     const historial = await obtenerHistorial(phone);
 
-    // ===============================================
-    // GPT-4o TOMA EL CONTROL COMPLETO
-    // ===============================================
-    log("🤖 Enviando a GPT-4o...");
-
     const respuesta = await responderGPT({
-      mensajeOriginal,
+      mensajeOriginal: message,
       mensajeNormalizado,
       reglas,
       historial,
       cliente
     });
 
-    log("🤖 Respuesta GPT:", respuesta);
+    await guardarHistorial(phone, message, respuesta);
 
-    // ===============================================
-    // GUARDAR HISTORIAL
-    // ===============================================
-    await guardarHistorial(phone, mensajeOriginal, respuesta);
-
-    // ===============================================
-    // RESPUESTA PARA WHATS AUTO
-    // ===============================================
     return res.json({ reply: respuesta });
 
-  } catch (error) {
-    console.error("❌ ERROR GLOBAL:", error);
+  } catch (e) {
+    log("❌ ERROR GLOBAL:", e);
     return res.json({
-      reply: "Lo siento, ocurrió un error inesperado 😓"
+      reply: "Ocurrió un error inesperado 😓"
     });
   }
 });
 
-// ======================================================
-// INICIAR SERVIDOR
-// ======================================================
-app.get("/", (req, res) => res.send("Luna Bot Operativo ✔️"));
+app.get("/", (req, res) => res.send("Luna bot funcionando ✔️"));
 
 app.listen(process.env.PORT || 3000, () => {
-  log("🚀 Servidor activo en puerto", process.env.PORT || 3000);
+  console.log("🚀 Luna Bot activo en puerto", process.env.PORT || 3000);
 });
