@@ -1,69 +1,81 @@
+// gpt.js — Motor de flujo conversacional controlado por JSON
 import OpenAI from "openai";
 import dotenv from "dotenv";
 dotenv.config();
 
 import rules from "./rules.js";
-import catalogo from "./catalogo.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ------------------------------------------------------
-// GENERAR CONTEXTO CON TODA LA INFORMACIÓN OFICIAL
-// ------------------------------------------------------
-function generarContexto(cliente) {
+function systemPrompt(cliente) {
   return `
-Eres *Luna*, asistente virtual de Delicias Monte Luna.
+Eres Luna 💛, asistente virtual de Delicias Monte Luna.
 
-🚨 REGLAS IMPORTANTES (OBLIGATORIAS):
-- NO puedes inventar información.
-- NO puedes agregar productos que no existan.
-- NO puedes agregar precios que no existan.
-- NO puedes dar horarios no incluidos en las reglas.
-- NO puedes mencionar comunas que no están permitidas.
-- NO puedes generar promociones, descuentos ni cosas no incluidas.
-- Si el cliente pregunta algo que NO está en la información oficial → debes responder:
-  "Lo siento 💛, esa información no está disponible."
-- Responde SIEMPRE en mensajes cortos y claros.
+Reglas ABSOLUTAS:
+- SOLO debes usar la información oficial (catálogo, precios, comunas, horarios, reglas).
+- NO puedes inventar nada.
+- Si algo no existe: responde "Lo siento 💛, esa información no está disponible."
 
-📦 CATÁLOGO OFICIAL (solo puedes usar esto):
+Tu misión es dirigir el FLUJO COMPLETO del pedido usando ESTADO:
+
+Estados posibles:
+- esperando_comuna
+- esperando_retiro
+- pidiendo_producto
+- pidiendo_detalles_producto
+- pidiendo_datos_despacho
+- mostrando_resumen
+- esperando_confirmacion
+- finalizado
+
+Datos del cliente:
+${JSON.stringify(cliente)}
+
+INFORMACION OFICIAL:
+CATALOGO:
 ${rules.catalogo_completo}
 
-🚚 DESPACHOS (solo esto es válido):
-- Comunas disponibles: ${rules.comunas.join(", ")}
-- Horarios: ${JSON.stringify(rules.horarios)}
-- Envío: $${rules.costo_envio} o gratis sobre $${rules.despacho_gratis}
-- Entregas al día siguiente (excepto domingo)
-- Retiro: ${rules.retiro_domicilio}
+COMUNAS:
+${rules.comunas.join(", ")}
 
-Cliente actual:
-- WhatsApp: ${cliente.whatsapp}
-- Comuna: ${cliente.comuna ?? "No indicada aún"}
+HORARIOS:
+${JSON.stringify(rules.horarios)}
 
-REGLA ABSOLUTA:
-❗ Si la respuesta NO se encuentra en esta información, responde:
-"Lo siento 💛, esa información no está disponible."
+METODOS DE PAGO:
+${rules.metodos_pago}
+
+RESPONDE SIEMPRE EN ESTE FORMATO JSON:
+
+{
+  "respuesta": "mensaje para el cliente",
+  "estado": "nuevo estado",
+  "actualizar": { ...campos del cliente a guardar },
+  "accion": "ninguna | guardar_pedido | mostrar_catalogo"
+}
 `;
 }
 
-// ------------------------------------------------------
-// GPT CONTROLADO
-// ------------------------------------------------------
-export async function responderGPT(texto, cliente) {
+export async function procesarFlujo(texto, cliente) {
   try {
-    const contexto = generarContexto(cliente);
-
-    const res = await openai.chat.completions.create({
+    const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.0, // ❗ CREATIVIDAD 0 → NO INVENTA
+      temperature: 0,
       messages: [
-        { role: "system", content: contexto },
+        { role: "system", content: systemPrompt(cliente) },
         { role: "user", content: texto }
       ]
     });
 
-    return res.choices[0].message.content.trim();
+    const textoJSON = completion.choices[0].message.content;
+
+    return JSON.parse(textoJSON);
   } catch (e) {
-    console.error("GPT error:", e);
-    return "Hubo un problema 💛, intenta de nuevo.";
+    console.log("❌ Error GPT:", e);
+    return {
+      respuesta: "Hubo un problema 💛 intenta de nuevo.",
+      estado: cliente.estado,
+      actualizar: {},
+      accion: "ninguna"
+    };
   }
 }
