@@ -8,12 +8,11 @@ import { transcribirAudio } from "./audio.js";
 import { responderGPT } from "./gpt.js";
 import rules from "./rules.js";
 import {
-  validarComuna,
   detectarProducto,
-  calcularResumen
+  calcularResumen,
+  decidirSiguientePaso
 } from "./helpers.js";
 
-// 👇 Nuevo import del clasificador GPT
 import { clasificarMensaje } from "./classifier.js";
 
 const app = express();
@@ -30,15 +29,11 @@ app.post("/whatsapp", async (req, res) => {
   console.log("📩 Mensaje recibido:", req.body);
 
   const { phone, message, type, mediaUrl } = req.body;
+  if (!phone) return res.json({ reply: "No pude leer tu número 💛" });
 
-  if (!phone) {
-    return res.json({ reply: "No pude leer tu número 💛" });
-  }
-
-  let texto = (message || "").toLowerCase().trim();
   const whatsapp = phone.trim();
+  let texto = (message || "").toLowerCase().trim();
 
-  // Notas de voz → texto
   if (type === "voice" && mediaUrl) {
     texto = (await transcribirAudio(mediaUrl)).toLowerCase();
   }
@@ -68,10 +63,10 @@ app.post("/whatsapp", async (req, res) => {
     nuevoCliente = true;
   }
 
-  // ---------- 1. CLIENTE NUEVO O SALUDO → CATÁLOGO ----------
-  const saludo = ["hola", "buenas", "buenos días", "buenas tardes", "buenas noches"];
+  // ---- SALUDO / NUEVO CLIENTE ----
+  const saludos = ["hola", "buenas", "buenos días", "buenas tardes", "buenas noches"];
 
-  if (nuevoCliente || saludo.some((s) => texto === s || texto.includes(s))) {
+  if (nuevoCliente || saludos.some((s) => texto.includes(s))) {
     return res.json({
       reply:
         rules.catalogo_completo +
@@ -79,20 +74,16 @@ app.post("/whatsapp", async (req, res) => {
     });
   }
 
-  // ---------- 2. CONSULTA DIRECTA DEL CATÁLOGO ----------
-  const palabrasCatalogo = ["catalogo", "catálogo", "ver catálogo", "menu", "ver menu"];
-
+  // ---- CONSULTA DE CATÁLOGO ----
+  const palabrasCatalogo = ["catalogo", "catálogo", "ver catálogo", "menu"];
   if (palabrasCatalogo.some((p) => texto.includes(p))) {
     return res.json({ reply: rules.catalogo_completo });
   }
 
-  // ---------- 3. BLOQUE DE COMUNA (REEMPLAZADO POR GPT CLASSIFIER) ----------
+  // ---- ETAPA 1: COMUNA ----
   if (!cliente.comuna) {
-
-    // 🧠 GPT decide qué tipo de mensaje envió el cliente
     const tipo = await clasificarMensaje(texto);
 
-    // 1) Es una comuna válida
     if (tipo === "comuna_valida") {
       await supabase
         .from("clientes_detallados")
@@ -104,38 +95,34 @@ app.post("/whatsapp", async (req, res) => {
       return res.json({
         reply:
           `Perfecto 💛 hacemos reparto en *${texto}*.\n` +
-          `Horario estimado: ${horario}.\n\n` +
+          `Horario estimado de entrega: ${horario}.\n\n` +
           "¿Qué deseas pedir?"
       });
     }
 
-    // 2) Es una comuna inválida
     if (tipo === "comuna_invalida") {
       return res.json({
         reply:
-          `Aún no tenemos reparto en *${texto}* 💛\n` +
+          `Por ahora no llegamos a *${texto}* 💛\n` +
           `📍 Puedes retirar en: ${rules.retiro_domicilio}\n\n` +
           "¿Deseas retiro?"
       });
     }
 
-    // 3) Es una pregunta → Responder y retomar flujo
     if (tipo === "pregunta") {
       const resp = await responderGPT(texto, cliente);
       return res.json({
-        reply: `${resp}\n\n💛 ¿En qué comuna enviamos tu pedido?`
+        reply: `${resp}\n\n${decidirSiguientePaso(cliente)}`
       });
     }
 
-    // 4) Es otro texto → pedir comuna de nuevo
     return res.json({
       reply: "Para continuar necesito tu comuna 💛"
     });
   }
 
-  // ---------- 4. DETECCIÓN DE PRODUCTOS ----------
+  // ---- ETAPA 2: PRODUCTOS ----
   const productos = detectarProducto(texto);
-
   if (productos.length > 0) {
     const nuevoCarrito = [...cliente.carrito, ...productos];
 
@@ -156,7 +143,7 @@ app.post("/whatsapp", async (req, res) => {
     });
   }
 
-  // ---------- 5. RESUMEN ----------
+  // ---- ETAPA 3: RESUMEN ----
   if (
     texto.includes("resumen") ||
     texto.includes("ver pedido") ||
@@ -177,7 +164,7 @@ app.post("/whatsapp", async (req, res) => {
     });
   }
 
-  // ---------- 6. CONFIRMACIÓN FINAL ----------
+  // ---- ETAPA 4: CONFIRMACIÓN ----
   if (
     texto.includes("confirmo") ||
     texto.includes("acepto") ||
@@ -204,10 +191,13 @@ app.post("/whatsapp", async (req, res) => {
     });
   }
 
-  // ---------- 7. GPT COMO ÚLTIMO RECURSO ----------
-  const respuesta = await responderGPT(texto, cliente);
-  return res.json({ reply: respuesta });
+  // ---- PREGUNTAS EN CUALQUIER MOMENTO ----
+  const resp = await responderGPT(texto, cliente);
+  return res.json({
+    reply: `${resp}\n\n${decidirSiguientePaso(cliente)}`
+  });
 });
 
+// SERVIDOR
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("🚀 Luna Bot listo en puerto:", PORT));
