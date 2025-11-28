@@ -166,7 +166,7 @@ ${JSON.stringify(cliente)}
 `;
 
     const respuesta = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       temperature: 0.2,
       messages: [
         { role: "system", content: "Eres Luna, asistente oficial de Delicias Monte Luna 💛" },
