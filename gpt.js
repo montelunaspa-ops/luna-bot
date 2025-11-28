@@ -1,93 +1,64 @@
-// ===================================================
-//  gpt.js — Motor conversacional GPT-4o (versión anti-loop)
-// ===================================================
-
 import OpenAI from "openai";
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+export async function responderGPT({ mensajeOriginal, mensajeNormalizado, reglas, historial, cliente }) {
 
-export async function responderGPT({ 
-  mensajeOriginal,
-  mensajeNormalizado,
-  reglas,
-  historial,
-  cliente
-}) {
+  const historialTexto = historial
+    .map(h => `Cliente: ${h.mensaje_usuario}\nLuna: ${h.respuesta_bot}`)
+    .join("\n");
 
   const prompt = `
-Eres **Luna Bot**, asistente de Delicias Monte Luna.
+Eres Luna, asistente virtual de ${reglas.nombre_negocio}.
+Toda tu información proviene EXCLUSIVAMENTE de esta base de datos.
 
-TU MISIÓN:  
-Guía al cliente a completar un pedido SIN NUNCA quedarte atrapada en una misma pregunta.
+== INFORMACIÓN DISPONIBLE ==
+Catálogo:
+${reglas.catalogo}
 
-USAS SOLO INFORMACIÓN DE LA BASE DE DATOS:
-${JSON.stringify(reglas, null, 2)}
+Comunas con despacho:
+${reglas.comunas_despacho}
 
----
+Horarios por comuna:
+${reglas.horarios_comuna}
 
-# 🔎 ANÁLISIS OBLIGATORIO ANTES DE RESPONDER
-Debes analizar el historial y determinar si ya existe cada uno de estos datos:
+Reglas:
+${reglas.reglas_negocio}
 
-- Comuna
-- Producto
-- Sabor(es)
-- Cantidad
-- Fecha de entrega
-- Dirección
-- Nombre y apellido
-- Confirmación final
+Flujo paso 1–5:
+${reglas.flujo_1}
+${reglas.flujo_2}
+${reglas.flujo_3}
+${reglas.flujo_4}
+${reglas.flujo_5}
 
-Marca cada dato como:
-✔ “YA LO TENGO”  
-❌ “NO LO TENGO”
+Regla global:
+${reglas.regla_global}
 
-SOLO PIDE un dato si está marcado como ❌ y **no lo pediste en el mensaje inmediatamente anterior**.
+==== HISTORIAL ====
+${historialTexto}
 
----
+==== MENSAJE DEL CLIENTE ====
+${mensajeOriginal}
 
-# 🛑 NORMAS ANTI-LOOP (OBLIGATORIAS)
+==== INSTRUCCIONES ====
+- Responde SIEMPRE en mensaje corto y claro.
+- Si el cliente hace preguntas fuera del flujo, respóndelas y vuelve a guiar.
+- No preguntes por la comuna si ya se preguntó muchas veces sin respuesta.
+- Si menciona un audio como “🎤 mensaje de voz”, pídele que lo escriba.
+- NUNCA repitas siempre la misma pregunta.
+- Mantén conversación natural: responde lo que pregunte.
+- Luego continúa el flujo según lo que falta.
 
-1. **Si la comuna YA aparece en el historial → jamás la vuelvas a pedir.**
-2. Si detectas una comuna válida aunque esté mal escrita → acéptala.
-3. Si acabas de pedir la comuna en el mensaje anterior → NO la repitas.
-4. Si falta otro dato, avanza al siguiente paso (producto, sabor, etc.)
-5. No repitas preguntas consecutivamente.
-6. No pidas dos datos en un mismo mensaje.
-7. Si el cliente pregunta otra cosa → respóndela y vuelve al flujo sin reiniciar.
-
----
-
-# 📘 HISTORIAL COMPLETO DEL CLIENTE
-${JSON.stringify(historial, null, 2)}
-
-# 📩 ÚLTIMO MENSAJE DEL CLIENTE
-"${mensajeOriginal}"
-
----
-
-# 🧠 TAREA
-1. Determina el avance del flujo según el historial.  
-2. Detecta si el cliente YA entregó la comuna.  
-3. Si “comuna = válida y ya entregada” → **NO LA PIDAS**.  
-4. Avanza al siguiente paso faltante.  
-5. Evita loops.  
-6. Responde en 1–2 líneas máximo.
-
----
-
-# 📤 RESPUESTA FINAL
-Devuelve SOLO el texto que enviaré al cliente.`;
+Ahora responde como Luna:
+`;
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
-    temperature: 0.4,
+    model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "Eres un asistente de ventas extremadamente preciso y sin loops." },
-      { role: "user", content: prompt }
+      { role: "system", content: prompt },
+      { role: "user", content: mensajeOriginal }
     ]
   });
 
-  return completion.choices[0].message.content;
+  return completion.choices[0].message.content.trim();
 }
