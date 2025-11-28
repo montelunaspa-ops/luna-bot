@@ -1,7 +1,3 @@
-// ===============================================
-//  Cargar TODAS las reglas del negocio desde Supabase
-// ===============================================
-
 import { supabase } from "./supabaseClient.js";
 
 export async function obtenerReglas() {
@@ -15,6 +11,8 @@ export async function obtenerReglas() {
   }
 
   const reglas = {};
-  data.forEach(r => reglas[r.rule_key] = r.rule_value);
+  data.forEach(r => {
+    reglas[r.rule_key] = r.rule_value;
+  });
   return reglas;
 }
