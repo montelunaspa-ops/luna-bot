@@ -30,8 +30,8 @@ Mensaje del cliente: "${texto}"
 `;
 
     const r = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.4,
+      model: "gpt-4o",
+      temperature: 0.7,
       messages: [{ role: "user", content: prompt }]
     });
 
