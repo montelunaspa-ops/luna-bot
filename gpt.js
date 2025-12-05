@@ -5,22 +5,20 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-/* ======================================================
-   🧠 INTERPRETAR MENSAJE (intención + emoción + comuna)
-====================================================== */
+/* 🧠 Interpretar mensaje (intención, comuna, emoción, etc.) */
 async function interpretarMensaje(mensaje) {
   const prompt = `
-Eres un asistente experto en interpretación de WhatsApp.
+Eres un asistente experto en interpretación de mensajes de WhatsApp.
 
 Analiza el mensaje y devuelve un JSON con:
 - intencion: saludo | pregunta | comuna | pedido | confirmacion | agradecimiento | otro
-- comuna: si detectas una comuna (corrige si está mal escrita)
-- pregunta: la pregunta clara del cliente
-- pedido: si expresa un producto o cantidad
+- comuna: si detectas que el usuario menciona una comuna
+- pregunta: si formula una pregunta, reescríbela de forma clara
+- pedido: si habla de un producto o cantidad, describelo corto
 - emocion: neutral | feliz | molesto | confundido | apurado | preocupado
-- texto_normalizado: mensaje limpiado
+- texto_normalizado: el mensaje limpio y entendible
 
-NO INVENTES INFORMACIÓN.
+NO inventes información.
 
 Mensaje del cliente: "${mensaje}"
 
@@ -44,32 +42,30 @@ Responde SOLO este JSON:
   return JSON.parse(result.choices[0].message.content);
 }
 
-/* ======================================================
-   🧠 RESPONDER CON SOLO LA INFORMACIÓN DE rules.js
-====================================================== */
+/* 🧠 Responder usando SOLO la info de rules.js */
 async function responderConocimiento(pregunta) {
   const prompt = `
-Contesta la siguiente pregunta usando EXCLUSIVAMENTE la información dada en este bloque:
+Responde la siguiente pregunta usando EXCLUSIVAMENTE esta información:
 
 -------------------------
-CATALOGO:
+CATÁLOGO:
 ${rules.catalogo}
 
-COMUNAS:
-${rules.comunas}
+COMUNAS CON DESPACHO:
+${rules.comunasTexto}
 
-HORARIOS:
+HORARIOS POR COMUNA:
 ${JSON.stringify(rules.horarios, null, 2)}
 
-POLITICAS:
+POLÍTICAS:
 ${rules.politicas}
 -------------------------
 
-REGLAS IMPORTANTES:
-- NO inventar información
-- NO agregar datos que no existan en rules.js
-- Responde corto y claro (WhatsApp style)
-- Si no está en la información, responde: "No tengo esa información, pero puedo ayudarte con tu pedido 😊"
+REGLAS:
+- NO inventes información.
+- NO agregues datos que no estén en el bloque.
+- Responde corto, claro, estilo WhatsApp.
+- Si no está la respuesta, di: "No tengo esa información, pero puedo ayudarte con tu pedido 😊".
 
 PREGUNTA DEL CLIENTE:
 "${pregunta}"
@@ -82,22 +78,19 @@ RESPUESTA:
     messages: [{ role: "user", content: prompt }]
   });
 
-  return result.choices[0].message.content;
+  return result.choices[0].message.content.trim();
 }
 
-/* ======================================================
-   🧠 VALIDAR COMUNA REAL EN CHILE (GPT)
-====================================================== */
+/* 🧠 Validar comuna real de Chile (no solo cobertura) */
 async function validarComunaChile(nombre) {
   const prompt = `
-Eres un verificador experto de comunas de Chile.
+Eres un verificador de comunas de Chile.
 
-Tu tarea:
-1. Indica si el texto corresponde a una comuna REAL de Chile.
-2. Si existe, responde SOLO el nombre correcto de la comuna.
-3. Si NO existe, responde EXACTAMENTE: "NO".
+TAREA:
+1. Si el texto es una comuna REAL de Chile, responde SOLO el nombre correcto.
+2. Si NO es una comuna real, responde EXACTAMENTE: "NO".
 
-Ejemplo:
+Ejemplos:
 "San migul" -> "San Miguel"
 "Quilicura" -> "Quilicura"
 "Macul" -> "Macul"
@@ -114,21 +107,19 @@ Comuna a validar: "${nombre}"
   return result.choices[0].message.content.trim();
 }
 
-/* ======================================================
-   😊 INTELIGENCIA EMOCIONAL
-====================================================== */
+/* 😊 Inteligencia emocional */
 function respuestaEmocional(emocion) {
   switch (emocion) {
     case "molesto":
-      return "Lamento que tengas esa experiencia 😔 Estoy aquí para ayudarte.";
+      return "Lamento que hayas tenido una mala experiencia 😔 Estoy aquí para ayudarte.";
     case "confundido":
-      return "No te preocupes, te explico con gusto 😊";
+      return "No te preocupes, te ayudo con gusto 😊";
     case "apurado":
       return "Vamos rapidito ⏱️";
     case "preocupado":
-      return "Tranquilo/a, aquí estoy para ayudarte 🤗";
+      return "Tranquilo/a, estoy aquí para ayudarte 🤗";
     case "feliz":
-      return "¡Me alegra saberlo! 😊";
+      return "¡Qué bueno! 😊";
     default:
       return "";
   }
@@ -137,6 +128,6 @@ function respuestaEmocional(emocion) {
 module.exports = {
   interpretarMensaje,
   responderConocimiento,
-  respuestaEmocional,
-  validarComunaChile
+  validarComunaChile,
+  respuestaEmocional
 };
