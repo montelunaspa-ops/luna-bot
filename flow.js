@@ -1,6 +1,6 @@
 const rules = require("./rules");
-const askLuna = require("./gpt");
 const { comunaValida } = require("./utils");
+const { interpretarMensaje, respuestaEmocional } = require("./gpt");
 const {
   guardarPedidoTemporal,
   guardarClienteNuevo,
@@ -8,27 +8,7 @@ const {
 } = require("./dbSave");
 
 /* ======================================================
-   DETECTOR DE PREGUNTAS FUERA DEL FLUJO
-====================================================== */
-const OUT_OF_FLOW_TRIGGER = [
-  "cuanto", "precio", "vale", "donde", "horario", 
-  "entrega", "entregan", "qué", "que", "cómo", 
-  "como", "cuando", "por qué", "porque"
-];
-
-function esPreguntaFueraDelFlujo(texto) {
-  if (!texto) return false;
-  const t = texto.toLowerCase();
-
-  // Pregunta directa
-  if (t.includes("?")) return true;
-
-  // Detectar palabras clave al inicio
-  return OUT_OF_FLOW_TRIGGER.some(p => t.startsWith(p));
-}
-
-/* ======================================================
-   FUNCIÓN PARA RETOMAR EL FLUJO DESPUÉS DE RESPONDER
+   FUNCIONES DE SOPORTE
 ====================================================== */
 function obtenerPreguntaDelPaso(step) {
   switch (step) {
@@ -49,115 +29,106 @@ function obtenerPreguntaDelPaso(step) {
   }
 }
 
-/* ======================================================
-   ESTADO DEL FLUJO POR CLIENTE
-====================================================== */
 module.exports = {
   iniciarFlujo(state, phone) {
     return {
       phone,
       step: "bienvenida",
-      pedido: [],
       clienteNuevo: false,
       comuna: "",
-      fechaEntrega: "",
+      pedido: [],
+      datos: { nombre: "", direccion: "", telefono2: "" },
       horarioEntrega: "",
-      datos: {
-        nombre: "",
-        direccion: "",
-        telefono2: ""
-      },
+      fechaEntrega: "",
       ...state
     };
   },
 
   /* ======================================================
-     PROCESAR FLUJO COMPLETO DEL BOT
+     PROCESAR PASO DEL FLUJO
   ====================================================== */
   async procesarPaso(state, msg) {
-    msg = msg.trim();
+    const info = await interpretarMensaje(msg);
 
-    // ===============================================
-    // 🧠 1. DETECTOR DE PREGUNTAS FUERA DEL FLUJO
-    // ===============================================
-    if (esPreguntaFueraDelFlujo(msg)) {
-      const respuesta = await askLuna(msg, state);
+    const reaccion = respuestaEmocional(info.emocion);
 
-      // NO avanzamos el flujo, solo respondemos la duda
-      const retorno = obtenerPreguntaDelPaso(state.step);
+    /* ======================================================
+       1. Interpretación por intención antes del flujo
+    ====================================================== */
 
-      return respuesta + "\n\n" + retorno;
+    // SALUDO
+    if (info.intencion === "saludo") {
+      return reaccion + " ¿En qué comuna será el despacho?";
     }
 
-    // ===============================================
-    // 🧠 2. FLUJO NORMAL POR PASOS
-    // ===============================================
+    // AGRADECIMIENTO
+    if (info.intencion === "agradecimiento") {
+      return reaccion + " ¿Deseas continuar con tu pedido?";
+    }
+
+    // PREGUNTA
+    if (info.intencion === "pregunta") {
+      const respuesta = await interpretarMensaje(info.texto_normalizado);
+      return respuesta.texto_normalizado + "\n\n" + obtenerPreguntaDelPaso(state.step);
+    }
+
+    // CLIENTE ENTREGA COMUNA
+    if (info.intencion === "comuna" && info.comuna) {
+      msg = info.comuna;
+    }
+
+    // CLIENTE MANIFIESTA PEDIDO
+    if (info.intencion === "pedido" && state.step === "tomar_pedido") {
+      state.pedido.push(info.pedido);
+      await guardarPedidoTemporal(state.phone, state.pedido);
+      return "Perfecto 😊 ¿Algo más?";
+    }
+
+    /* ======================================================
+       2. FLUJO ESTRUCTURADO (los pasos normales)
+    ====================================================== */
+
     switch (state.step) {
-
-      /* =======================
-         1. Bienvenida
-      ======================= */
-      case "bienvenida":
-        state.step = "validar_cliente";
-        return rules.bienvenida;
-
-      /* =======================
-         2. Solicitar comuna
-      ======================= */
       case "solicitar_comuna": {
-        const comuna = comunaValida(msg);
+        const comuna = comunaValida(info.comuna || msg);
 
         if (!comuna) {
-          return "No tenemos reparto en esa comuna. ¿Deseas retirar en Calle Chacabuco 1120, Santiago Centro?";
+          return "No entendí la comuna 😅 ¿Puedes indicarla nuevamente?";
         }
 
         state.comuna = comuna;
         state.horarioEntrega = rules.horarios[comuna];
         state.step = "tomar_pedido";
-
-        return `Perfecto, entregamos entre ${state.horarioEntrega}. ¿Qué productos deseas pedir?`;
+        return `Perfecto 🎉 Entregamos entre ${state.horarioEntrega}. ¿Qué deseas pedir?`;
       }
 
-      /* =======================
-         3. Tomar pedido
-      ======================= */
-      case "tomar_pedido": {
-
-        if (msg.toLowerCase().includes("nada más") || msg.toLowerCase().includes("nada mas")) {
-          state.step = "solicitar_nombre";
-          return "Perfecto. ¿Cuál es tu nombre y apellido?";
+      case "tomar_pedido":
+        if (info.intencion === "pedido") {
+          state.pedido.push(info.pedido);
+          await guardarPedidoTemporal(state.phone, state.pedido);
+          return "¿Algo más?";
         }
 
-        state.pedido.push(msg);
+        if (msg.toLowerCase().includes("nada")) {
+          state.step = "solicitar_nombre";
+          return "Perfecto 😊 ¿Cuál es tu nombre y apellido?";
+        }
 
-        await guardarPedidoTemporal(state.phone, state.pedido);
+        return "No entendí bien el producto 😅 ¿Qué deseas pedir?";
 
-        return "¿Algo más? Cuando termines escribe *nada más*.";
-      }
-
-      /* =======================
-         4. Nombre
-      ======================= */
       case "solicitar_nombre":
         state.datos.nombre = msg;
         state.step = "solicitar_direccion";
         return "¿Cuál es la dirección exacta?";
 
-      /* =======================
-         5. Dirección
-      ======================= */
       case "solicitar_direccion":
         state.datos.direccion = msg;
         state.step = "solicitar_telefono2";
         return "¿Tienes otro número adicional? Si no, escribe *no*.";
 
-      /* =======================
-         6. Teléfono adicional
-      ======================= */
       case "solicitar_telefono2":
-        state.datos.telefono2 = msg.toLowerCase() === "no" ? "" : msg;
+        state.datos.telefono2 = msg === "no" ? "" : msg;
 
-        // Fecha de entrega = mañana
         const manana = new Date();
         manana.setDate(manana.getDate() + 1);
         state.fechaEntrega = manana.toISOString().split("T")[0];
@@ -168,50 +139,25 @@ module.exports = {
 Resumen del pedido:
 ${state.pedido.map(p => "- " + p).join("\n")}
 
-Datos de despacho:
+Datos:
 • Nombre: ${state.datos.nombre}
 • Dirección: ${state.datos.direccion}
 • Comuna: ${state.comuna}
-• Teléfono: ${state.phone}
-• Teléfono adicional: ${state.datos.telefono2}
 
-Entrega: mañana entre ${state.horarioEntrega}
+Entrega: mañana ${state.horarioEntrega}
 
 Confirma escribiendo *sí*.
         `;
 
-      /* =======================
-         7. Confirmación final
-      ======================= */
       case "confirmar":
-        if (msg.toLowerCase() !== "sí" && msg.toLowerCase() !== "si") {
-          return "Para confirmar el pedido escribe *sí*.";
-        }
-
-        if (state.clienteNuevo) {
-          await guardarClienteNuevo(
-            state.phone,
-            state.datos.nombre,
-            state.datos.direccion,
-            state.datos.telefono2,
-            state.comuna
-          );
-        }
+        if (msg.toLowerCase() !== "sí" && msg.toLowerCase() !== "si")
+          return "Para confirmar escribe *sí* 😊";
 
         await guardarPedidoCompleto(state);
 
         state.step = "finalizado";
         return "¡Perfecto! Tu pedido quedó agendado. ✅";
 
-      /* =======================
-         8. Conversación cerrada
-      ======================= */
-      case "finalizado":
-        return "Tu pedido ya está confirmado. Si necesitas algo más, aquí estoy 😊";
-
-      /* =======================
-         DEFAULT
-      ======================= */
       default:
         return "No entendí, ¿me repites por favor?";
     }
