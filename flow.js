@@ -1,4 +1,5 @@
 const rules = require("./rules");
+const askLuna = require("./gpt");
 const { comunaValida } = require("./utils");
 const {
   guardarPedidoTemporal,
@@ -6,10 +7,52 @@ const {
   guardarPedidoCompleto
 } = require("./dbSave");
 
+/* ======================================================
+   DETECTOR DE PREGUNTAS FUERA DEL FLUJO
+====================================================== */
+const OUT_OF_FLOW_TRIGGER = [
+  "cuanto", "precio", "vale", "donde", "horario", 
+  "entrega", "entregan", "qué", "que", "cómo", 
+  "como", "cuando", "por qué", "porque"
+];
+
+function esPreguntaFueraDelFlujo(texto) {
+  if (!texto) return false;
+  const t = texto.toLowerCase();
+
+  // Pregunta directa
+  if (t.includes("?")) return true;
+
+  // Detectar palabras clave al inicio
+  return OUT_OF_FLOW_TRIGGER.some(p => t.startsWith(p));
+}
+
+/* ======================================================
+   FUNCIÓN PARA RETOMAR EL FLUJO DESPUÉS DE RESPONDER
+====================================================== */
+function obtenerPreguntaDelPaso(step) {
+  switch (step) {
+    case "solicitar_comuna":
+      return "¿En qué comuna será el despacho?";
+    case "tomar_pedido":
+      return "¿Qué productos deseas pedir? Si ya terminaste escribe *nada más*.";
+    case "solicitar_nombre":
+      return "¿Cuál es tu nombre y apellido?";
+    case "solicitar_direccion":
+      return "¿Cuál es la dirección exacta?";
+    case "solicitar_telefono2":
+      return "¿Tienes otro número adicional? Si no, escribe *no*.";
+    case "confirmar":
+      return "Escribe *sí* para confirmar tu pedido.";
+    default:
+      return "";
+  }
+}
+
+/* ======================================================
+   ESTADO DEL FLUJO POR CLIENTE
+====================================================== */
 module.exports = {
-  /* ======================================================
-     INICIO DE SESIÓN POR CLIENTE
-  ====================================================== */
   iniciarFlujo(state, phone) {
     return {
       phone,
@@ -29,11 +72,26 @@ module.exports = {
   },
 
   /* ======================================================
-     PROCESADOR CENTRAL DEL FLUJO
+     PROCESAR FLUJO COMPLETO DEL BOT
   ====================================================== */
   async procesarPaso(state, msg) {
-    msg = msg.trim().toLowerCase();
+    msg = msg.trim();
 
+    // ===============================================
+    // 🧠 1. DETECTOR DE PREGUNTAS FUERA DEL FLUJO
+    // ===============================================
+    if (esPreguntaFueraDelFlujo(msg)) {
+      const respuesta = await askLuna(msg, state);
+
+      // NO avanzamos el flujo, solo respondemos la duda
+      const retorno = obtenerPreguntaDelPaso(state.step);
+
+      return respuesta + "\n\n" + retorno;
+    }
+
+    // ===============================================
+    // 🧠 2. FLUJO NORMAL POR PASOS
+    // ===============================================
     switch (state.step) {
 
       /* =======================
@@ -47,8 +105,7 @@ module.exports = {
          2. Solicitar comuna
       ======================= */
       case "solicitar_comuna": {
-        const comunaOriginal = msg;
-        const comuna = comunaValida(comunaOriginal);
+        const comuna = comunaValida(msg);
 
         if (!comuna) {
           return "No tenemos reparto en esa comuna. ¿Deseas retirar en Calle Chacabuco 1120, Santiago Centro?";
@@ -66,16 +123,13 @@ module.exports = {
       ======================= */
       case "tomar_pedido": {
 
-        // Cliente terminó de pedir
-        if (msg.includes("nada más") || msg.includes("nada mas")) {
+        if (msg.toLowerCase().includes("nada más") || msg.toLowerCase().includes("nada mas")) {
           state.step = "solicitar_nombre";
           return "Perfecto. ¿Cuál es tu nombre y apellido?";
         }
 
-        // Agregar ítem al pedido
         state.pedido.push(msg);
 
-        // Guardar pedido temporal en Supabase
         await guardarPedidoTemporal(state.phone, state.pedido);
 
         return "¿Algo más? Cuando termines escribe *nada más*.";
@@ -101,9 +155,9 @@ module.exports = {
          6. Teléfono adicional
       ======================= */
       case "solicitar_telefono2":
-        state.datos.telefono2 = msg === "no" ? "" : msg;
+        state.datos.telefono2 = msg.toLowerCase() === "no" ? "" : msg;
 
-        // Generar fecha de entrega (día siguiente)
+        // Fecha de entrega = mañana
         const manana = new Date();
         manana.setDate(manana.getDate() + 1);
         state.fechaEntrega = manana.toISOString().split("T")[0];
@@ -125,17 +179,15 @@ Entrega: mañana entre ${state.horarioEntrega}
 
 Confirma escribiendo *sí*.
         `;
-      
+
       /* =======================
-         7. Confirmación
+         7. Confirmación final
       ======================= */
       case "confirmar":
-
-        if (msg !== "sí" && msg !== "si") {
+        if (msg.toLowerCase() !== "sí" && msg.toLowerCase() !== "si") {
           return "Para confirmar el pedido escribe *sí*.";
         }
 
-        // Guardar cliente nuevo si corresponde
         if (state.clienteNuevo) {
           await guardarClienteNuevo(
             state.phone,
@@ -146,14 +198,13 @@ Confirma escribiendo *sí*.
           );
         }
 
-        // Guardar pedido final
         await guardarPedidoCompleto(state);
 
         state.step = "finalizado";
         return "¡Perfecto! Tu pedido quedó agendado. ✅";
 
       /* =======================
-         8. Conversación terminada
+         8. Conversación cerrada
       ======================= */
       case "finalizado":
         return "Tu pedido ya está confirmado. Si necesitas algo más, aquí estoy 😊";
