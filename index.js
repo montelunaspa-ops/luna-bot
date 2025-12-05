@@ -12,20 +12,20 @@ const app = express();
 // 🟣 CONFIGURACIÓN CORRECTA PARA WHATSAUTO
 // WhatsAuto envía los datos como application/x-www-form-urlencoded
 // ======================================================
-app.use(express.urlencoded({ extended: true })); // ⭐ NECESARIO
-app.use(express.json()); // por si algún dispositivo usa JSON
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// Ruta GET de prueba
+// Ruta GET para pruebas
 app.get("/", (req, res) => {
   res.send("✨ Luna Bot está activo y funcionando ✨");
 });
 
-// Estado por número
+// Estado por cliente
 let sessions = {};
 
 
 // ======================================================
-// 🟣 ENDPOINT PRINCIPAL
+// 🟣 ENDPOINT PRINCIPAL DEL BOT
 // ======================================================
 app.post("/whatsapp", async (req, res) => {
 
@@ -34,7 +34,6 @@ app.post("/whatsapp", async (req, res) => {
   const phone = req.body.phone;
   const message = req.body.message;
 
-  // Validación mínima
   if (!phone || !message) {
     console.log("❌ ERROR: WhatsAuto no envió phone o message.");
     return res.json({ reply: "No recibí un mensaje válido." });
@@ -42,11 +41,14 @@ app.post("/whatsapp", async (req, res) => {
 
   console.log("📩 MENSAJE RECIBIDO:", { phone, message });
 
-  // Guardar historial del cliente
+  // Guardar historial de entrada
   guardarHistorial(phone, message, "cliente");
 
   // Crear sesión si no existe
-  if (!sessions[phone]) sessions[phone] = flow.iniciarFlujo({}, phone);
+  if (!sessions[phone]) {
+    sessions[phone] = flow.iniciarFlujo({}, phone);
+  }
+
   const state = sessions[phone];
 
 
@@ -65,6 +67,7 @@ app.post("/whatsapp", async (req, res) => {
         require("./rules").catalogo +
         "\n¿En qué comuna será el despacho?";
 
+      console.log("🤖 RESPUESTA DEL BOT:", reply);
       guardarHistorial(phone, reply, "bot");
       return res.json({ reply });
     }
@@ -74,16 +77,22 @@ app.post("/whatsapp", async (req, res) => {
     state.step = "tomar_pedido";
 
     const reply = "Bienvenido nuevamente 😊 ¿Qué deseas pedir hoy?";
+
+    console.log("🤖 RESPUESTA DEL BOT:", reply);
     guardarHistorial(phone, reply, "bot");
     return res.json({ reply });
   }
 
 
   // ======================================================
-  // 🟣 2. FLUJO NORMAL DEL BOT
+  // 🟣 2. PROCESAR FLUJO NORMAL DEL BOT
   // ======================================================
   const response = await flow.procesarPaso(state, message);
 
+  // LOG NUEVO ▶️ Ahora verás la respuesta del bot en Render
+  console.log("🤖 RESPUESTA DEL BOT:", response);
+
+  // Guardar historial salida
   guardarHistorial(phone, response, "bot");
 
   return res.json({ reply: response });
