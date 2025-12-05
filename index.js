@@ -74,7 +74,6 @@ app.post("/whatsapp", async (req, res) => {
           "\n\nAquí tienes nuestro catálogo:\n\n" +
           rules.catalogo +
           "\n" +
-          rules.comunas +
           "\n¿En qué comuna será el despacho?";
 
         console.log("🤖 RESPUESTA DEL BOT:", reply);
