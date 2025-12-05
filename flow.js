@@ -1,5 +1,9 @@
 const rules = require("./rules");
-const { interpretarMensaje, respuestaEmocional } = require("./gpt");
+const {
+  interpretarMensaje,
+  respuestaEmocional,
+  responderConocimiento
+} = require("./gpt");
 const { comunaValida } = require("./utils");
 const {
   guardarPedidoTemporal,
