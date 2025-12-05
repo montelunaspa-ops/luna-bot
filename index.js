@@ -8,56 +8,33 @@ const { guardarHistorial } = require("./dbSave");
 
 const app = express();
 
-// =======================================
-// 🟣 CONFIGURACIÓN PARA RECIBIR TEXTO PLANO
-// =======================================
-app.use(express.text({ type: "*/*" })); // WhatsAuto envía text/plain
-app.use(express.json({ strict: false }));
-app.use(express.urlencoded({ extended: true }));
+// ======================================================
+// 🟣 CONFIGURACIÓN CORRECTA PARA WHATSAUTO
+// WhatsAuto envía los datos como application/x-www-form-urlencoded
+// ======================================================
+app.use(express.urlencoded({ extended: true })); // ⭐ NECESARIO
+app.use(express.json()); // por si algún dispositivo usa JSON
 
-// Ruta GET para pruebas
+// Ruta GET de prueba
 app.get("/", (req, res) => {
   res.send("✨ Luna Bot está activo y funcionando ✨");
 });
 
-// Estado de sesión por número
+// Estado por número
 let sessions = {};
 
 
-// =======================================
-// 🟣 ENDPOINT PRINCIPAL DEL BOT
-// =======================================
+// ======================================================
+// 🟣 ENDPOINT PRINCIPAL
+// ======================================================
 app.post("/whatsapp", async (req, res) => {
 
-  console.log("🟣 BODY CRUDO RECIBIDO:", req.body);
+  console.log("🟣 BODY DECODIFICADO:", req.body);
 
-  let payload;
+  const phone = req.body.phone;
+  const message = req.body.message;
 
-  // ---------------------------------------
-  // 🧠 Caso 1: WhatsAuto envía texto plano
-  // ---------------------------------------
-  if (typeof req.body === "string") {
-    try {
-      payload = JSON.parse(req.body);
-    } catch (e) {
-      console.log("❌ ERROR: No se pudo parsear el texto plano:", req.body);
-      return res.json({ reply: "No recibí un mensaje válido." });
-    }
-  } 
-  
-  // ---------------------------------------
-  // 🧠 Caso 2: WhatsAuto envía JSON normal
-  // ---------------------------------------
-  else {
-    payload = req.body;
-  }
-
-  console.log("🟢 PAYLOAD FINAL:", payload);
-
-  // Extraer datos del JSON real
-  const phone = payload.phone;
-  const message = payload.message;
-
+  // Validación mínima
   if (!phone || !message) {
     console.log("❌ ERROR: WhatsAuto no envió phone o message.");
     return res.json({ reply: "No recibí un mensaje válido." });
@@ -73,9 +50,9 @@ app.post("/whatsapp", async (req, res) => {
   const state = sessions[phone];
 
 
-  // =======================================
+  // ======================================================
   // 🟣 1. VALIDAR CLIENTE NUEVO O EXISTENTE
-  // =======================================
+  // ======================================================
   if (state.step === "validar_cliente") {
     const existe = await clienteExiste(phone, supabase);
 
@@ -102,9 +79,9 @@ app.post("/whatsapp", async (req, res) => {
   }
 
 
-  // =======================================
+  // ======================================================
   // 🟣 2. FLUJO NORMAL DEL BOT
-  // =======================================
+  // ======================================================
   const response = await flow.procesarPaso(state, message);
 
   guardarHistorial(phone, response, "bot");
@@ -113,9 +90,9 @@ app.post("/whatsapp", async (req, res) => {
 });
 
 
-// =======================================
+// ======================================================
 // 🟣 INICIAR SERVIDOR
-// =======================================
+// ======================================================
 app.listen(process.env.PORT || 3000, () =>
   console.log("✨ Luna Bot funcionando correctamente en Render ✨")
 );
