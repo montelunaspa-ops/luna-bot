@@ -29,7 +29,7 @@ Oferta: 4 por $10.000
 
   comunas_despacho: [
     "Cerro Navia","Cerrillos","Conchalí","Estación Central","Independencia",
-    "Lo Prado","Lo Espejo","Maipú","Pedro Aguirre Cerda","Pudahuel",
+    "Lo Prado","Lo Espejo (si es cerca de pedro Aguirre cerda y antes de Avenida Vespucio)","Maipú (si es antes de Avenida Vespucio entre estación central y cerrillos)","Pedro Aguirre Cerda","Pudahuel (sur y norte)",
     "Quinta Normal","Recoleta","Renca","Santiago Centro","San Miguel","San Joaquín"
   ],
 
