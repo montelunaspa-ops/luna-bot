@@ -1,8 +1,6 @@
 const supabase = require("./supabase");
 
-/* ============================================
-   ⚡ GUARDAR CLIENTE NUEVO
-============================================ */
+/* ⚡ GUARDAR CLIENTE NUEVO */
 async function guardarClienteNuevo(phone, nombre, direccion, telefono2, comuna) {
   const { error } = await supabase
     .from("clientes_detallados")
@@ -19,9 +17,7 @@ async function guardarClienteNuevo(phone, nombre, direccion, telefono2, comuna) 
   return true;
 }
 
-/* ============================================
-   ⚡ GUARDAR CADA MENSAJE (HISTORIAL)
-============================================ */
+/* ⚡ GUARDAR CADA MENSAJE (HISTORIAL) */
 async function guardarHistorial(phone, mensaje, tipo = "cliente") {
   const { error } = await supabase
     .from("historial")
@@ -35,9 +31,7 @@ async function guardarHistorial(phone, mensaje, tipo = "cliente") {
   if (error) console.log("❌ Error guardando historial:", error);
 }
 
-/* ============================================
-   ⚡ GUARDAR PEDIDO TEMPORAL
-============================================ */
+/* ⚡ GUARDAR PEDIDO TEMPORAL */
 async function guardarPedidoTemporal(phone, pedidoArray) {
   const { error } = await supabase
     .from("pedidos")
@@ -50,9 +44,7 @@ async function guardarPedidoTemporal(phone, pedidoArray) {
   if (error) console.log("❌ Error guardando pedido temporal:", error);
 }
 
-/* ============================================
-   ⚡ GUARDAR PEDIDO COMPLETO
-============================================ */
+/* ⚡ GUARDAR PEDIDO COMPLETO */
 async function guardarPedidoCompleto(state) {
   const { error } = await supabase
     .from("pedidos_completos")
@@ -61,10 +53,11 @@ async function guardarPedidoCompleto(state) {
       pedido: state.pedido,
       nombre: state.datos.nombre,
       direccion: state.datos.direccion,
-      telefono2: state.datos.telefono2,
+      telefono2: state.datos.telefono2 || state.phone,
       comuna: state.comuna,
       fecha_entrega: state.fechaEntrega,
       horario: state.horarioEntrega,
+      entrega: state.entrega,
       creado_en: new Date().toISOString()
     });
 
