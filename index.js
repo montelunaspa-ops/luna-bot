@@ -3,32 +3,28 @@ const express = require("express");
 const askLuna = require("./gpt");
 const supabase = require("./supabase");
 const flow = require("./flow");
+const rules = require("./rules");
 const { clienteExiste } = require("./utils");
 const { guardarHistorial } = require("./dbSave");
 
 const app = express();
 
-// ======================================================
-// 🟣 CONFIGURACIÓN CORRECTA PARA WHATSAUTO
 // WhatsAuto envía los datos como application/x-www-form-urlencoded
-// ======================================================
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Ruta GET para pruebas
+// Ruta de prueba
 app.get("/", (req, res) => {
-  res.send("✨ Luna Bot está activo y funcionando ✨");
+  res.send("✨ Luna Bot activo y funcionando correctamente ✨");
 });
 
-// Estado por cliente
+// Sesión por número
 let sessions = {};
-
 
 // ======================================================
 // 🟣 ENDPOINT PRINCIPAL DEL BOT
 // ======================================================
 app.post("/whatsapp", async (req, res) => {
-
   console.log("🟣 BODY DECODIFICADO:", req.body);
 
   const phone = req.body.phone;
@@ -41,7 +37,7 @@ app.post("/whatsapp", async (req, res) => {
 
   console.log("📩 MENSAJE RECIBIDO:", { phone, message });
 
-  // Guardar historial de entrada
+  // Guardar historial entrada
   guardarHistorial(phone, message, "cliente");
 
   // Crear sesión si no existe
@@ -49,22 +45,35 @@ app.post("/whatsapp", async (req, res) => {
     sessions[phone] = flow.iniciarFlujo({}, phone);
   }
 
-  const state = sessions[phone];
-
+  let state = sessions[phone];
 
   // ======================================================
-  // 🟣 1. VALIDAR CLIENTE NUEVO O EXISTENTE
+  // ⭐ 1. SALUDO + VALIDACIÓN INMEDIATA EN EL MISMO MENSAJE
   // ======================================================
-  if (state.step === "validar_cliente") {
+  if (state.step === "bienvenida") {
+    // ------------------------------
+    // Enviar saludo inicial
+    // ------------------------------
+    const saludo = rules.bienvenida;
+    console.log("🤖 RESPUESTA DEL BOT:", saludo);
+    guardarHistorial(phone, saludo, "bot");
+
+    // Avanzamos al paso siguiente sin esperar otro mensaje
+    state.step = "validar_cliente";
+
+    // ------------------------------
+    // Validar cliente en Supabase
+    // ------------------------------
     const existe = await clienteExiste(phone, supabase);
 
+    // 🔵 CLIENTE NUEVO → Enviar catálogo inmediatamente
     if (!existe) {
       state.clienteNuevo = true;
       state.step = "solicitar_comuna";
 
       const reply =
         "Aquí tienes nuestro catálogo:\n\n" +
-        require("./rules").catalogo +
+        rules.catalogo +
         "\n¿En qué comuna será el despacho?";
 
       console.log("🤖 RESPUESTA DEL BOT:", reply);
@@ -72,35 +81,30 @@ app.post("/whatsapp", async (req, res) => {
       return res.json({ reply });
     }
 
-    // Cliente existente
+    // 🟢 CLIENTE EXISTENTE → Ir directo a toma de pedido
     state.clienteNuevo = false;
     state.step = "tomar_pedido";
 
     const reply = "Bienvenido nuevamente 😊 ¿Qué deseas pedir hoy?";
-
     console.log("🤖 RESPUESTA DEL BOT:", reply);
     guardarHistorial(phone, reply, "bot");
     return res.json({ reply });
   }
 
-
   // ======================================================
-  // 🟣 2. PROCESAR FLUJO NORMAL DEL BOT
+  // ⭐ 2. FLUJO NORMAL PARA MENSAJES SUBSIGUIENTES
   // ======================================================
   const response = await flow.procesarPaso(state, message);
 
-  // LOG NUEVO ▶️ Ahora verás la respuesta del bot en Render
   console.log("🤖 RESPUESTA DEL BOT:", response);
 
-  // Guardar historial salida
   guardarHistorial(phone, response, "bot");
 
   return res.json({ reply: response });
 });
 
-
 // ======================================================
-// 🟣 INICIAR SERVIDOR
+// 🟣 SERVIDOR
 // ======================================================
 app.listen(process.env.PORT || 3000, () =>
   console.log("✨ Luna Bot funcionando correctamente en Render ✨")
