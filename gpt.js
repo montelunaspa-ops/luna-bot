@@ -5,123 +5,173 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-/* 🧠 Interpretar mensaje (intención, comuna, emoción, etc.) */
+/* ============================================================
+   🧠 MODELO PRINCIPAL: CLASIFICADOR DE INTENCIONES GPT
+   ============================================================ */
 async function interpretarMensaje(mensaje) {
-  const prompt = `
-Eres un asistente experto en interpretación de mensajes de WhatsApp.
+  try {
+    const prompt = `
+Eres un clasificador inteligente de mensajes para un bot de ventas llamado Luna.
+Debes analizar el mensaje del cliente y responder SOLO un JSON válido sin comentarios.
 
-Analiza el mensaje y devuelve un JSON con:
-- intencion: saludo | pregunta | comuna | pedido | confirmacion | agradecimiento | otro
-- comuna: si detectas que el usuario menciona una comuna
-- pregunta: si formula una pregunta, reescríbela de forma clara
-- pedido: si habla de un producto o cantidad, describelo corto
-- emocion: neutral | feliz | molesto | confundido | apurado | preocupado
-- texto_normalizado: el mensaje limpio y entendible
+Tu tarea es detectar:
+- intención: saludo | despedida | pregunta | comuna | producto | pedido | desconocido
+- emoción: neutral | feliz | molesto | confundido | triste
+- texto_normalizado: versión limpia del mensaje
+- comuna: si el mensaje es una comuna o contiene una comuna (NO inventar)
+- pedido: si menciona un producto del catálogo de Delicias Monte Luna
+- pregunta: si está haciendo una pregunta
+- producto: si menciona productos aunque NO esté haciendo un pedido
 
-NO inventes información.
+Reglas importantes:
 
-Mensaje del cliente: "${mensaje}"
+1. NO debes clasificar productos como comunas.
+2. Si el mensaje dice algo como “brazo de reina”, “pan”, “muffins”, “que venden”, etc., es intención "producto" o "pregunta".
+3. Si hay una pregunta, la intención SIEMPRE debe ser "pregunta".
+4. NO inventar comunas: solo reconocer comunas reales.
+5. NO asumir que un producto es un pedido a menos que el mensaje claramente lo indique.
+6. Si el mensaje contiene emociones (ej: frustración), detectarlas.
+7. Si el mensaje está vacío o irrelevante, intención “desconocido”.
 
-Responde SOLO este JSON:
+Catálogo de productos válidos:
+${rules.productosLista}
+
+Comunas con cobertura:
+${rules.comunasCobertura.join(", ")}
+
+El mensaje del cliente es:
+"${mensaje}"
+
+Devuelve SOLO este formato JSON:
 {
   "intencion": "",
-  "comuna": "",
-  "pregunta": "",
-  "pedido": "",
   "emocion": "",
-  "texto_normalizado": ""
+  "texto_normalizado": "",
+  "comuna": "",
+  "pedido": "",
+  "pregunta": ""
 }
 `;
 
-  const result = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    response_format: { type: "json_object" },
-    messages: [{ role: "user", content: prompt }]
-  });
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.1,
+      messages: [{ role: "user", content: prompt }]
+    });
 
-  return JSON.parse(result.choices[0].message.content);
+    let result = completion.choices[0].message.content.trim();
+
+    try {
+      return JSON.parse(result);
+    } catch (e) {
+      return {
+        intencion: "desconocido",
+        emocion: "neutral",
+        texto_normalizado: mensaje,
+        comuna: "",
+        pedido: "",
+        pregunta: ""
+      };
+    }
+
+  } catch (error) {
+    console.error("❌ Error en interpretarMensaje:", error);
+    return {
+      intencion: "desconocido",
+      emocion: "neutral",
+      texto_normalizado: mensaje,
+      comuna: "",
+      pedido: "",
+      pregunta: ""
+    };
+  }
 }
 
-/* 🧠 Responder usando SOLO la info de rules.js */
+/* ============================================================
+   🧠 RESPUESTAS INTELIGENTES BASADAS EN RULES
+   ============================================================ */
 async function responderConocimiento(pregunta) {
-  const prompt = `
-Responde la siguiente pregunta usando EXCLUSIVAMENTE esta información:
+  try {
+    const prompt = `
+Eres Luna, una asistente de ventas amable y concisa.
+Debes responder SOLO usando la información del siguiente bloque (rules):
 
--------------------------
-CATÁLOGO:
-${rules.catalogo}
+${rules.baseConocimiento}
 
-COMUNAS CON DESPACHO:
-${rules.comunasTexto}
-
-HORARIOS POR COMUNA:
-${JSON.stringify(rules.horarios, null, 2)}
-
-POLÍTICAS:
-${rules.politicas}
--------------------------
-
-REGLAS:
-- NO inventes información.
-- NO agregues datos que no estén en el bloque.
-- Responde corto, claro, estilo WhatsApp.
-- Si no está la respuesta, di: "No tengo esa información, pero puedo ayudarte con tu pedido 😊".
-
-PREGUNTA DEL CLIENTE:
+Pregunta del cliente:
 "${pregunta}"
 
-RESPUESTA:
+Responde de forma:
+- corta
+- amable
+- clara
+- sin inventar información que no esté en rules.
 `;
 
-  const result = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }]
-  });
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      messages: [{ role: "user", content: prompt }]
+    });
 
-  return result.choices[0].message.content.trim();
+    return completion.choices[0].message.content.trim();
+
+  } catch (err) {
+    console.error("❌ Error en responderConocimiento:", err);
+    return "Puedo ayudarte con eso 😊 ¿Qué más deseas saber?";
+  }
 }
 
-/* 🧠 Validar comuna real de Chile (no solo cobertura) */
-async function validarComunaChile(nombre) {
-  const prompt = `
-Eres un verificador de comunas de Chile.
+/* ============================================================
+   🧠 VALIDACIÓN INTELIGENTE DE COMUNAS DE CHILE
+   ============================================================ */
+async function validarComunaChile(texto) {
+  try {
+    const prompt = `
+Valida si el siguiente texto contiene una comuna real de Chile:
 
-TAREA:
-1. Si el texto es una comuna REAL de Chile, responde SOLO el nombre correcto.
-2. Si NO es una comuna real, responde EXACTAMENTE: "NO".
+"${texto}"
 
-Ejemplos:
-"San migul" -> "San Miguel"
-"Quilicura" -> "Quilicura"
-"Macul" -> "Macul"
-"Locura" -> "NO"
+Debes devolver SOLO:
+- Nombre exacto de la comuna (si existe)
+- O "NO" si no es una comuna válida
 
-Comuna a validar: "${nombre}"
+Reglas:
+- No inventar comunas.
+- Si el texto menciona productos o preguntas, DEVOLVER "NO".
+- No confundir productos con comunas.
+- Responder solo el nombre de la comuna o "NO".
 `;
 
-  const result = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }]
-  });
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.0,
+      messages: [{ role: "user", content: prompt }]
+    });
 
-  return result.choices[0].message.content.trim();
+    return completion.choices[0].message.content.trim();
+
+  } catch (e) {
+    console.error("❌ Error validarComunaChile:", e);
+    return "NO";
+  }
 }
 
-/* 😊 Inteligencia emocional */
+/* ============================================================
+   🧠 RESPUESTA EMOCIONAL
+   ============================================================ */
 function respuestaEmocional(emocion) {
   switch (emocion) {
-    case "molesto":
-      return "Lamento que hayas tenido una mala experiencia 😔 Estoy aquí para ayudarte.";
-    case "confundido":
-      return "No te preocupes, te ayudo con gusto 😊";
-    case "apurado":
-      return "Vamos rapidito ⏱️";
-    case "preocupado":
-      return "Tranquilo/a, estoy aquí para ayudarte 🤗";
     case "feliz":
-      return "¡Qué bueno! 😊";
+      return "😊";
+    case "molesto":
+      return "😟";
+    case "triste":
+      return "😔";
+    case "confundido":
+      return "🤔";
     default:
-      return "";
+      return "😊";
   }
 }
 
