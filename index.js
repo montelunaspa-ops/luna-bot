@@ -1,105 +1,57 @@
-import express from "express";
-import dotenv from "dotenv";
-import { supabase } from "./supabaseClient.js";
-import { obtenerReglas } from "./lunaRules.js";
-import { normalizar } from "./normalize.js";
-import { responderGPT } from "./gpt.js";
-
-dotenv.config();
+require("dotenv").config();
+const express = require("express");
+const askLuna = require("./gpt");
+const supabase = require("./supabase");
+const flow = require("./flow");
+const { clienteExiste } = require("./utils");
 
 const app = express();
-const DEBUG = true;
-const log = (...a) => DEBUG && console.log("[LUNA DEBUG]", ...a);
-
-// WhatsAuto envía texto URLENCODED convertido a objeto
-app.use(express.urlencoded({ extended: true }));
-app.use(express.text({ type: "*/*" }));
 app.use(express.json());
 
-async function obtenerHistorial(telefono) {
-  const { data } = await supabase
-    .from("historial")
-    .select("*")
-    .eq("telefono", telefono)
-    .order("fecha", { ascending: true });
-
-  return data || [];
-}
-
-async function guardarHistorial(telefono, msg, bot) {
-  await supabase.from("historial").insert({
-    telefono,
-    mensaje_usuario: msg,
-    respuesta_bot: bot
-  });
-}
-
-async function verificarCliente(telefono) {
-  const { data } = await supabase
-    .from("clientes_detallados")
-    .select("*")
-    .eq("telefono", telefono)
-    .maybeSingle();
-
-  return data;
-}
-
-async function registrarCliente(telefono) {
-  await supabase.from("clientes_detallados").insert({
-    telefono,
-    es_cliente: false
-  });
-}
+// Estado temporal por cliente
+let sessions = {};
 
 app.post("/whatsapp", async (req, res) => {
-  try {
-    log("========================================");
-    log("📩 RAW BODY:", req.body);
+  console.log("[DEBUG WHATAUTO]:", req.body);
 
-    let phone = req.body.phone || "";
-    let message = req.body.message || "";
+  const { phone, message } = req.body;
 
-    log("👉 phone:", phone);
-    log("👉 message:", message);
-
-    if (!phone) {
-      return res.json({ reply: "No pude identificar tu número 😓" });
-    }
-
-    const msgNorm = normalizar(message);
-    const reglas = await obtenerReglas();
-
-    let cliente = await verificarCliente(phone);
-
-    if (!cliente) {
-      await registrarCliente(phone);
-      cliente = { telefono: phone };
-    }
-
-    const historial = await obtenerHistorial(phone);
-
-    const respuesta = await responderGPT({
-      mensajeOriginal: message,
-      mensajeNormalizado: msgNorm,
-      reglas,
-      historial,
-      cliente
-    });
-
-    await guardarHistorial(phone, message, respuesta);
-
-    return res.json({ reply: respuesta });
-
-  } catch (e) {
-    log("❌ ERROR GLOBAL:", e);
-    return res.json({
-      reply: "Ocurrió un error inesperado 😓"
-    });
+  if (!phone || !message) {
+    return res.json({ reply: "No recibí mensaje válido." });
   }
+
+  // Crear sesión si no existe
+  if (!sessions[phone]) sessions[phone] = flow.iniciarFlujo({}, phone);
+  const state = sessions[phone];
+
+  // Si está en paso validación, revisar bd
+  if (state.step === "validar_cliente") {
+    const existe = await clienteExiste(phone, supabase);
+
+    if (!existe) {
+      state.step = "solicitar_comuna";
+      return res.json({
+        reply:
+          "Aquí tienes nuestro catálogo:\n\n" +
+          require("./rules").catalogo +
+          "\n¿En qué comuna será el despacho?"
+      });
+    } else {
+      // Cliente antiguo → saltar comuna y datos
+      state.step = "tomar_pedido";
+      return res.json({
+        reply: "Bienvenido nuevamente 😊 ¿Qué deseas pedir hoy?"
+      });
+    }
+  }
+
+  // Procesar flujo normal
+  const response = flow.procesarPaso(state, message);
+
+  res.json({ reply: response });
 });
 
-app.get("/", (req, res) => res.send("Luna bot funcionando ✔️"));
-
-app.listen(process.env.PORT || 3000, () => {
-  console.log("🚀 Luna Bot activo en puerto", process.env.PORT || 3000);
-});
+// Iniciar servidor
+app.listen(3000, () =>
+  console.log("Luna Bot funcionando en puerto 3000 ✨")
+);
