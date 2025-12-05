@@ -7,24 +7,40 @@ const { clienteExiste } = require("./utils");
 const { guardarHistorial } = require("./dbSave");
 
 const app = express();
-app.use(express.json());
 
-// Estado temporal por cliente
+// Muy importante: soportar JSON y payloads enviados como texto
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+// Ruta GET opcional
+app.get("/", (req, res) => {
+  res.send("✨ Luna Bot está activo ✨");
+});
+
+// Sesiones por número
 let sessions = {};
 
-/* ======================================================
-   🟣 WEBHOOK DE WHATAUTO
-====================================================== */
 app.post("/whatsapp", async (req, res) => {
-  console.log("[DEBUG WHATAUTO]:", req.body);
+  console.log("🟣 RAW BODY:", req.body);
 
-  const { phone, message } = req.body;
+  // Protección: si req.body viene vacío
+  if (!req.body) {
+    console.log("❌ ERROR: WhatsAuto no envió cuerpo JSON.");
+    return res.json({ reply: "No recibí datos válidos." });
+  }
+
+  // Extraemos datos reales de WhatsAuto
+  const phone = req.body.phone || null;
+  const message = req.body.message || req.body.text || null;
 
   if (!phone || !message) {
+    console.log("❌ ERROR: Formato inválido:", req.body);
     return res.json({ reply: "No recibí un mensaje válido." });
   }
 
-  // Guardar historial del cliente
+  console.log("📩 MENSAJE RECIBIDO:", { phone, message });
+
+  // Guardar historial entrada
   guardarHistorial(phone, message, "cliente");
 
   // Crear sesión si no existe
@@ -32,13 +48,10 @@ app.post("/whatsapp", async (req, res) => {
 
   const state = sessions[phone];
 
-  /* ======================================================
-      1. VALIDAR CLIENTE EN SUPABASE
-  ====================================================== */
+  // 1️⃣ Validación cliente
   if (state.step === "validar_cliente") {
     const existe = await clienteExiste(phone, supabase);
 
-    // Cliente nuevo
     if (!existe) {
       state.clienteNuevo = true;
       state.step = "solicitar_comuna";
@@ -61,19 +74,15 @@ app.post("/whatsapp", async (req, res) => {
     return res.json({ reply });
   }
 
-  /* ======================================================
-      2. FLUJO NORMAL
-  ====================================================== */
+  // 2️⃣ Flujo normal
   const response = await flow.procesarPaso(state, message);
 
   guardarHistorial(phone, response, "bot");
 
-  res.json({ reply: response });
+  return res.json({ reply: response });
 });
 
-/* ======================================================
-   🟣 INICIAR SERVIDOR
-====================================================== */
-app.listen(3000, () =>
-  console.log("✨ Luna Bot funcionando en puerto 3000 ✨")
+// Iniciar servidor
+app.listen(process.env.PORT || 3000, () =>
+  console.log("✨ Luna Bot funcionando en Render ✨")
 );
