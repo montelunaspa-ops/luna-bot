@@ -8,7 +8,7 @@ const {
 
 module.exports = {
   /* ======================================================
-     CREAR ESTADO DE SESIÓN
+     INICIO DE SESIÓN POR CLIENTE
   ====================================================== */
   iniciarFlujo(state, phone) {
     return {
@@ -16,23 +16,23 @@ module.exports = {
       step: "bienvenida",
       pedido: [],
       clienteNuevo: false,
+      comuna: "",
+      fechaEntrega: "",
+      horarioEntrega: "",
       datos: {
         nombre: "",
         direccion: "",
         telefono2: ""
       },
-      comuna: "",
-      fechaEntrega: "",
-      horarioEntrega: "",
       ...state
     };
   },
 
   /* ======================================================
-     PROCESAR CADA PASO DEL FLUJO
+     PROCESADOR CENTRAL DEL FLUJO
   ====================================================== */
   async procesarPaso(state, msg) {
-    msg = msg.trim();
+    msg = msg.trim().toLowerCase();
 
     switch (state.step) {
 
@@ -46,8 +46,9 @@ module.exports = {
       /* =======================
          2. Solicitar comuna
       ======================= */
-      case "solicitar_comuna":
-        const comuna = comunaValida(msg);
+      case "solicitar_comuna": {
+        const comunaOriginal = msg;
+        const comuna = comunaValida(comunaOriginal);
 
         if (!comuna) {
           return "No tenemos reparto en esa comuna. ¿Deseas retirar en Calle Chacabuco 1120, Santiago Centro?";
@@ -58,25 +59,27 @@ module.exports = {
         state.step = "tomar_pedido";
 
         return `Perfecto, entregamos entre ${state.horarioEntrega}. ¿Qué productos deseas pedir?`;
+      }
 
       /* =======================
          3. Tomar pedido
       ======================= */
-      case "tomar_pedido":
+      case "tomar_pedido": {
 
         // Cliente terminó de pedir
-        if (msg.toLowerCase().includes("nada más")) {
+        if (msg.includes("nada más") || msg.includes("nada mas")) {
           state.step = "solicitar_nombre";
           return "Perfecto. ¿Cuál es tu nombre y apellido?";
         }
 
-        // Agregar producto
+        // Agregar ítem al pedido
         state.pedido.push(msg);
 
-        // Guardar temporalmente pedido
-        guardarPedidoTemporal(state.phone, state.pedido);
+        // Guardar pedido temporal en Supabase
+        await guardarPedidoTemporal(state.phone, state.pedido);
 
         return "¿Algo más? Cuando termines escribe *nada más*.";
+      }
 
       /* =======================
          4. Nombre
@@ -98,12 +101,12 @@ module.exports = {
          6. Teléfono adicional
       ======================= */
       case "solicitar_telefono2":
-        state.datos.telefono2 = msg.toLowerCase() === "no" ? "" : msg;
+        state.datos.telefono2 = msg === "no" ? "" : msg;
 
         // Generar fecha de entrega (día siguiente)
-        const mañana = new Date();
-        mañana.setDate(mañana.getDate() + 1);
-        state.fechaEntrega = mañana.toISOString().split("T")[0];
+        const manana = new Date();
+        manana.setDate(manana.getDate() + 1);
+        state.fechaEntrega = manana.toISOString().split("T")[0];
 
         state.step = "confirmar";
 
@@ -122,19 +125,19 @@ Entrega: mañana entre ${state.horarioEntrega}
 
 Confirma escribiendo *sí*.
         `;
-
+      
       /* =======================
-         7. Confirmar pedido
+         7. Confirmación
       ======================= */
       case "confirmar":
 
-        if (msg.toLowerCase() !== "sí") {
+        if (msg !== "sí" && msg !== "si") {
           return "Para confirmar el pedido escribe *sí*.";
         }
 
-        // Guardar cliente nuevo
+        // Guardar cliente nuevo si corresponde
         if (state.clienteNuevo) {
-          guardarClienteNuevo(
+          await guardarClienteNuevo(
             state.phone,
             state.datos.nombre,
             state.datos.direccion,
@@ -143,7 +146,7 @@ Confirma escribiendo *sí*.
           );
         }
 
-        // Guardar pedido completo
+        // Guardar pedido final
         await guardarPedidoCompleto(state);
 
         state.step = "finalizado";
@@ -153,13 +156,13 @@ Confirma escribiendo *sí*.
          8. Conversación terminada
       ======================= */
       case "finalizado":
-        return "Tu pedido ya está confirmado. Si necesitas algo más, escríbeme 😊";
+        return "Tu pedido ya está confirmado. Si necesitas algo más, aquí estoy 😊";
 
       /* =======================
          DEFAULT
       ======================= */
       default:
-        return "No entendí, ¿me puedes repetir?";
+        return "No entendí, ¿me repites por favor?";
     }
   }
 };
