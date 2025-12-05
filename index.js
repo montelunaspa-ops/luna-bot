@@ -3,106 +3,148 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const qs = require("qs");
 
+const rules = require("./rules");
 const { guardarHistorial } = require("./dbSave");
-const flow = require("./flow");
 const { clienteExiste } = require("./utils-db");
+const flow = require("./flow");
 
 const app = express();
+
+// WhatsAuto envía el body como text/plain con formato x-www-form-urlencoded
 app.use(bodyParser.text({ type: "*/*" }));
 
-// Sesiones en memoria (puedes moverlas luego a Supabase si quieres persistencia)
+// Sesiones por número de teléfono
 const sesiones = {};
 
-/* ======================================================
-   🟣 DECODIFICAR BODY QUE WHATAUTO ENVÍA COMO TEXT/FORM
-====================================================== */
+/* Decodificar el body que envía WhatsAuto */
 function parseWhatsAutoBody(rawBody) {
   try {
-    const body = qs.parse(rawBody);
+    const parsed = qs.parse(rawBody);
     return {
-      app: body.app || null,
-      sender: body.sender || null,
-      phone: body.phone || null,
-      message: body.message || null,
-      type: body.type || "text"
+      app: parsed.app || null,
+      sender: parsed.sender || null,
+      phone: parsed.phone || null,
+      message: parsed.message || null,
+      type: parsed.type || "text"
     };
   } catch (err) {
-    console.error("❌ Error intentando parsear el body:", err);
+    console.error("❌ Error parseando body de WhatsAuto:", err);
     return null;
   }
 }
 
-/* ======================================================
-   🟣 WEBHOOK PRINCIPAL DEL BOT
-====================================================== */
 app.post("/whatsapp", async (req, res) => {
   try {
     console.log("🟣 BODY CRUDO RECIBIDO:", req.body);
-
     const data = parseWhatsAutoBody(req.body);
 
     if (!data || !data.phone || !data.message) {
-      console.log("❌ ERROR: Body inválido o sin datos necesarios");
-      return res.json({ reply: "Hubo un error recibiendo tu mensaje." });
+      console.log("❌ ERROR: body inválido o sin phone/message");
+      return res.json({ reply: "No recibí un mensaje válido." });
     }
-
-    console.log("🟣 BODY DECODIFICADO:", data);
 
     const phone = data.phone.trim();
     const message = data.message.trim();
 
+    console.log("🟣 BODY DECODIFICADO:", data);
     console.log("📩 MENSAJE RECIBIDO:", { phone, message });
+
+    // Guardar mensaje del cliente
+    await guardarHistorial(phone, message, "cliente");
 
     // Crear sesión si no existe
     if (!sesiones[phone]) {
-      sesiones[phone] = {
-        phone,
-        step: "comuna",       // Primer paso del flujo
-        comuna: null,
-        pedido: [],
-        datos: {},
-        fechaEntrega: null,
-        horarioEntrega: null
-      };
       console.log("🆕 Nueva sesión creada:", phone);
+
+      const existe = await clienteExiste(phone);
+      let state = flow.iniciarFlujo({}, phone);
+      sesiones[phone] = state;
+
+      let reply;
+
+      if (!existe) {
+        state.clienteNuevo = true;
+        state.step = "solicitar_comuna";
+
+        reply =
+          `${rules.bienvenida}\n\n` +
+          rules.catalogo +
+          "\n" +
+          rules.comunasTexto +
+          "\n¿En qué comuna será el despacho?";
+      } else {
+        state.clienteNuevo = false;
+        state.step = "tomar_pedido";
+
+        reply =
+          `${rules.bienvenida}\n\n` +
+          "Bienvenido nuevamente 😊 ¿Qué deseas pedir hoy?";
+      }
+
+      await guardarHistorial(phone, reply, "bot");
+      console.log("🤖 RESPUESTA DEL BOT:", reply);
+
+      return res.json({ reply });
     }
 
+    // Si ya existe sesión → continuar flujo
     const state = sesiones[phone];
 
-    // Guardar mensaje del cliente en historial
-    await guardarHistorial(phone, message, "cliente");
+    // Opción de reiniciar flujo si escribe "hola"
+    if (message.toLowerCase().trim() === "hola") {
+      console.log("🔄 Reinicio de flujo solicitado");
 
-    /* ======================================================
-       ⚡ PROCESAR FLUJO DEL BOT
-    ======================================================= */
+      const existe = await clienteExiste(phone);
+      let stateNuevo = flow.iniciarFlujo({}, phone);
+      sesiones[phone] = stateNuevo;
+
+      let reply;
+
+      if (!existe) {
+        stateNuevo.clienteNuevo = true;
+        stateNuevo.step = "solicitar_comuna";
+
+        reply =
+          `${rules.bienvenida}\n\n` +
+          rules.catalogo +
+          "\n" +
+          rules.comunasTexto +
+          "\n¿En qué comuna será el despacho?";
+      } else {
+        stateNuevo.clienteNuevo = false;
+        stateNuevo.step = "tomar_pedido";
+
+        reply =
+          `${rules.bienvenida}\n\n` +
+          "Bienvenido nuevamente 😊 ¿Qué deseas pedir hoy?";
+      }
+
+      await guardarHistorial(phone, reply, "bot");
+      console.log("🤖 RESPUESTA DEL BOT:", reply);
+
+      return res.json({ reply });
+    }
+
+    // Procesar paso normal
     const respuesta = await flow.procesarPaso(state, message);
 
-    // Guardamos respuesta en historial
     await guardarHistorial(phone, respuesta, "bot");
-
     console.log("🤖 RESPUESTA DEL BOT:", respuesta);
 
-    // Respuesta final a WhatsAuto
     return res.json({ reply: respuesta });
-
   } catch (err) {
     console.error("❌ ERROR EN /whatsapp:", err);
     return res.json({
-      reply: "Ocurrió un error procesando tu mensaje 😔 intenta nuevamente."
+      reply:
+        "Hubo un problema temporal al procesar tu mensaje 😔. Intenta nuevamente en unos segundos."
     });
   }
 });
 
-/* ======================================================
-   🟢 ENDPOINT DE PRUEBA
-====================================================== */
 app.get("/", (req, res) => {
-  res.send("Luna Bot activo 💫");
+  res.send("✨ Luna Bot activo y funcionando correctamente ✨");
 });
 
-/* ======================================================
-   🚀 INICIAR SERVIDOR
-====================================================== */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor iniciado en el puerto ${PORT}`);
