@@ -1,42 +1,35 @@
 const rules = require("./rules");
 
-/* ======================================================
-   NORMALIZAR TEXTO (elimina tildes, acentos y mayúsculas)
-====================================================== */
+/* Normaliza texto: minúsculas, sin tildes, trim */
 function normalizar(texto = "") {
   return texto
     .toLowerCase()
-    .normalize("NFD") // separar letras y acentos
-    .replace(/[\u0300-\u036f]/g, "") // eliminar acentos
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim();
 }
 
-/* ======================================================
-   LISTA DE COMUNAS VALIDAS NORMALIZADAS
-====================================================== */
-const comunasValidas = Object.keys(rules.horarios).map(c => normalizar(c));
+// Lista normalizada de comunas con cobertura
+const comunasValidasNorm = rules.comunasCobertura.map((c) => normalizar(c));
 
-/* ======================================================
-   DISTANCIA DE LEVENSHTEIN (medir similitud entre palabras)
-====================================================== */
+/* Distancia de Levenshtein */
 function levenshtein(a, b) {
+  a = a || "";
+  b = b || "";
   const matrix = [];
-
-  let i, j;
 
   if (!a.length) return b.length;
   if (!b.length) return a.length;
 
-  for (i = 0; i <= b.length; i++) {
+  for (let i = 0; i <= b.length; i++) {
     matrix[i] = [i];
   }
-
-  for (j = 0; j <= a.length; j++) {
+  for (let j = 0; j <= a.length; j++) {
     matrix[0][j] = j;
   }
 
-  for (i = 1; i <= b.length; i++) {
-    for (j = 1; j <= a.length; j++) {
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
       if (b.charAt(i - 1) === a.charAt(j - 1)) {
         matrix[i][j] = matrix[i - 1][j - 1];
       } else {
@@ -52,57 +45,44 @@ function levenshtein(a, b) {
   return matrix[b.length][a.length];
 }
 
-/* ======================================================
-   SIMILITUD ENTRE DOS PALABRAS (0 a 1)
-====================================================== */
 function similitud(a, b) {
   const distancia = levenshtein(a, b);
-  const maxLen = Math.max(a.length, b.length);
+  const maxLen = Math.max(a.length, b.length) || 1;
   return 1 - distancia / maxLen;
 }
 
-/* ======================================================
-   DETECTAR COMUNA CON CORRECCIÓN AUTOMÁTICA
-====================================================== */
+/**
+ * Devuelve el nombre CANÓNICO de la comuna dentro de la cobertura
+ * o null si no coincide con ninguna.
+ */
 function comunaValida(input = "") {
-  if (!input) return null;
+  const norm = normalizar(input);
+  if (!norm) return null;
 
-  // Normalizamos
-  const comunaNormalizada = normalizar(input);
-
-  // Caso 1: Coincidencia exacta
-  if (comunasValidas.includes(comunaNormalizada)) {
-    return Object.keys(rules.horarios).find(
-      c => normalizar(c) === comunaNormalizada
-    );
+  // Coincidencia exacta
+  const idxExact = comunasValidasNorm.indexOf(norm);
+  if (idxExact !== -1) {
+    return rules.comunasCobertura[idxExact];
   }
 
-  // Caso 2: Intentamos corregir con similitud
-  let mejorCoincidencia = null;
-  let mejorSimilitud = 0;
-
-  for (const comuna of comunasValidas) {
-    const s = similitud(comunaNormalizada, comuna);
-
-    if (s > mejorSimilitud) {
-      mejorSimilitud = s;
-      mejorCoincidencia = comuna;
+  // Fuzzy
+  let mejorSim = 0;
+  let mejorIdx = -1;
+  comunasValidasNorm.forEach((c, i) => {
+    const s = similitud(norm, c);
+    if (s > mejorSim) {
+      mejorSim = s;
+      mejorIdx = i;
     }
-  }
+  });
 
-  // Umbral mínimo de similitud (ajustable)
-  if (mejorSimilitud >= 0.6) {
-    return Object.keys(rules.horarios).find(
-      c => normalizar(c) === mejorCoincidencia
-    );
+  if (mejorSim >= 0.6 && mejorIdx !== -1) {
+    return rules.comunasCobertura[mejorIdx];
   }
 
   return null;
 }
 
-/* ======================================================
-   EXPORTAR
-====================================================== */
 module.exports = {
   normalizar,
   comunaValida,
