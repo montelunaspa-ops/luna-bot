@@ -1,14 +1,13 @@
 const rules = require("./rules");
-const { comunaValida } = require("./utils");
 const { interpretarMensaje, respuestaEmocional } = require("./gpt");
+const { comunaValida } = require("./utils");
 const {
   guardarPedidoTemporal,
-  guardarClienteNuevo,
   guardarPedidoCompleto
 } = require("./dbSave");
 
 /* ======================================================
-   FUNCIONES DE SOPORTE
+   PREGUNTAS AUTOMÁTICAS SEGÚN EL PASO
 ====================================================== */
 function obtenerPreguntaDelPaso(step) {
   switch (step) {
@@ -19,7 +18,7 @@ function obtenerPreguntaDelPaso(step) {
     case "solicitar_nombre":
       return "¿Cuál es tu nombre y apellido?";
     case "solicitar_direccion":
-      return "¿Cuál es la dirección exacta?";
+      return "¿Cuál es la dirección exacta para el despacho?";
     case "solicitar_telefono2":
       return "¿Tienes otro número adicional? Si no, escribe *no*.";
     case "confirmar":
@@ -29,6 +28,9 @@ function obtenerPreguntaDelPaso(step) {
   }
 }
 
+/* ======================================================
+   INICIAR FLUJO
+====================================================== */
 module.exports = {
   iniciarFlujo(state, phone) {
     return {
@@ -45,121 +47,175 @@ module.exports = {
   },
 
   /* ======================================================
-     PROCESAR PASO DEL FLUJO
+     PROCESAR CADA PASO
   ====================================================== */
   async procesarPaso(state, msg) {
+    // Interpretación por inteligencia GPT
     const info = await interpretarMensaje(msg);
-
-    const reaccion = respuestaEmocional(info.emocion);
+    const emocion = respuestaEmocional(info.emocion);
 
     /* ======================================================
-       1. Interpretación por intención antes del flujo
+       RESPUESTAS POR INTENCIÓN (antes del flujo)
     ====================================================== */
 
-    // SALUDO
+    // SALUDOS
     if (info.intencion === "saludo") {
-      return reaccion + " ¿En qué comuna será el despacho?";
+      return (
+        emocion +
+        " " +
+        obtenerPreguntaDelPaso(state.step)
+      );
     }
 
     // AGRADECIMIENTO
     if (info.intencion === "agradecimiento") {
-      return reaccion + " ¿Deseas continuar con tu pedido?";
+      return emocion + " ¿Deseas continuar con tu pedido?";
     }
 
     // PREGUNTA
     if (info.intencion === "pregunta") {
-      const respuesta = await interpretarMensaje(info.texto_normalizado);
-      return respuesta.texto_normalizado + "\n\n" + obtenerPreguntaDelPaso(state.step);
+      return (
+        emocion +
+        " " +
+        "Claro 😊 " +
+        info.texto_normalizado +
+        "\n\n" +
+        obtenerPreguntaDelPaso(state.step)
+      );
     }
 
-    // CLIENTE ENTREGA COMUNA
-    if (info.intencion === "comuna" && info.comuna) {
-      msg = info.comuna;
-    }
-
-    // CLIENTE MANIFIESTA PEDIDO
+    // PEDIDO (si está en el paso correspondiente)
     if (info.intencion === "pedido" && state.step === "tomar_pedido") {
       state.pedido.push(info.pedido);
       await guardarPedidoTemporal(state.phone, state.pedido);
-      return "Perfecto 😊 ¿Algo más?";
+      return emocion + " Perfecto 😊 ¿Algo más?";
     }
 
     /* ======================================================
-       2. FLUJO ESTRUCTURADO (los pasos normales)
+       🔥 PASO 1 — SOLICITAR COMUNA (CON GPT + utils.js)
     ====================================================== */
+    if (state.step === "solicitar_comuna") {
+      let comunaDetectada = null;
 
-    switch (state.step) {
-      case "solicitar_comuna": {
-        const comuna = comunaValida(info.comuna || msg);
-
-        if (!comuna) {
-          return "No entendí la comuna 😅 ¿Puedes indicarla nuevamente?";
-        }
-
-        state.comuna = comuna;
-        state.horarioEntrega = rules.horarios[comuna];
-        state.step = "tomar_pedido";
-        return `Perfecto 🎉 Entregamos entre ${state.horarioEntrega}. ¿Qué deseas pedir?`;
+      // Primer intento: GPT interpretó una comuna
+      if (info.comuna) {
+        comunaDetectada = comunaValida(info.comuna);
       }
 
-      case "tomar_pedido":
-        if (info.intencion === "pedido") {
-          state.pedido.push(info.pedido);
-          await guardarPedidoTemporal(state.phone, state.pedido);
-          return "¿Algo más?";
-        }
+      // Segundo intento: utils.js corrige lo escrito
+      if (!comunaDetectada) {
+        comunaDetectada = comunaValida(msg);
+      }
 
-        if (msg.toLowerCase().includes("nada")) {
-          state.step = "solicitar_nombre";
-          return "Perfecto 😊 ¿Cuál es tu nombre y apellido?";
-        }
+      // Ninguna coincidencia válida
+      if (!comunaDetectada) {
+        return (
+          emocion +
+          " No logré identificar la comuna 😅\n" +
+          "Por favor indícame nuevamente la comuna."
+        );
+      }
 
-        return "No entendí bien el producto 😅 ¿Qué deseas pedir?";
+      // Comuna válida
+      state.comuna = comunaDetectada;
+      state.horarioEntrega = rules.horarios[comunaDetectada];
+      state.step = "tomar_pedido";
 
-      case "solicitar_nombre":
-        state.datos.nombre = msg;
-        state.step = "solicitar_direccion";
-        return "¿Cuál es la dirección exacta?";
+      return (
+        emocion +
+        ` Perfecto 🎉 Entregamos entre *${state.horarioEntrega}*.\n¿Qué deseas pedir?`
+      );
+    }
 
-      case "solicitar_direccion":
-        state.datos.direccion = msg;
-        state.step = "solicitar_telefono2";
-        return "¿Tienes otro número adicional? Si no, escribe *no*.";
+    /* ======================================================
+       🔥 PASO 2 — TOMAR PEDIDO
+    ====================================================== */
+    if (state.step === "tomar_pedido") {
+      // Cliente terminó de pedir
+      if (msg.toLowerCase().includes("nada")) {
+        state.step = "solicitar_nombre";
+        return emocion + " Perfecto 😊 ¿Cuál es tu nombre y apellido?";
+      }
 
-      case "solicitar_telefono2":
-        state.datos.telefono2 = msg === "no" ? "" : msg;
+      // GPT detectó pedido
+      if (info.intencion === "pedido") {
+        state.pedido.push(info.pedido);
+        await guardarPedidoTemporal(state.phone, state.pedido);
+        return emocion + " Anotado 😊 ¿Algo más?";
+      }
 
-        const manana = new Date();
-        manana.setDate(manana.getDate() + 1);
-        state.fechaEntrega = manana.toISOString().split("T")[0];
+      return emocion + " No entendí bien el producto 😅 ¿Qué deseas pedir?";
+    }
 
-        state.step = "confirmar";
+    /* ======================================================
+       🔥 PASO 3 — SOLICITAR NOMBRE
+    ====================================================== */
+    if (state.step === "solicitar_nombre") {
+      state.datos.nombre = msg;
+      state.step = "solicitar_direccion";
+      return emocion + " ¿Cuál es la dirección exacta?";
+    }
 
-        return `
-Resumen del pedido:
+    /* ======================================================
+       🔥 PASO 4 — SOLICITAR DIRECCIÓN
+    ====================================================== */
+    if (state.step === "solicitar_direccion") {
+      state.datos.direccion = msg;
+      state.step = "solicitar_telefono2";
+      return emocion + " ¿Tienes otro número adicional? Si no, escribe *no*.";
+    }
+
+    /* ======================================================
+       🔥 PASO 5 — SOLICITAR TELÉFONO 2
+    ====================================================== */
+    if (state.step === "solicitar_telefono2") {
+      state.datos.telefono2 = msg.toLowerCase() === "no" ? "" : msg;
+
+      const manana = new Date();
+      manana.setDate(manana.getDate() + 1);
+      state.fechaEntrega = manana.toISOString().split("T")[0];
+
+      state.step = "confirmar";
+
+      return `
+Resumen del pedido 📦
 ${state.pedido.map(p => "- " + p).join("\n")}
 
-Datos:
+Datos del despacho 🏡
 • Nombre: ${state.datos.nombre}
 • Dirección: ${state.datos.direccion}
 • Comuna: ${state.comuna}
 
-Entrega: mañana ${state.horarioEntrega}
+🗓️ *Entrega:* mañana entre ${state.horarioEntrega}
 
-Confirma escribiendo *sí*.
-        `;
-
-      case "confirmar":
-        if (msg.toLowerCase() !== "sí" && msg.toLowerCase() !== "si")
-          return "Para confirmar escribe *sí* 😊";
-
-        await guardarPedidoCompleto(state);
-
-        state.step = "finalizado";
-        return "¡Perfecto! Tu pedido quedó agendado. ✅";
-
-      default:
-        return "No entendí, ¿me repites por favor?";
+Para confirmar escribe: *sí*
+`;
     }
+
+    /* ======================================================
+       🔥 PASO 6 — CONFIRMAR PEDIDO
+    ====================================================== */
+    if (state.step === "confirmar") {
+      if (msg.toLowerCase() !== "sí" && msg.toLowerCase() !== "si") {
+        return emocion + " Para confirmar escribe *sí* 😊";
+      }
+
+      await guardarPedidoCompleto(state);
+
+      state.step = "finalizado";
+
+      return (
+        emocion +
+        " ¡Perfecto! Tu pedido quedó agendado. ✅"
+      );
+    }
+
+    /* ======================================================
+       🔥 RESPUESTA POR DEFECTO
+    ====================================================== */
+    return (
+      emocion +
+      " No entendí bien 😅 ¿Me lo repites por favor?"
+    );
   }
 };
