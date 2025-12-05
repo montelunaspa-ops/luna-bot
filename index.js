@@ -1,97 +1,63 @@
-// ===============================
-// 📌 LUNA BOT - INDEX.JS FINAL
-// ===============================
-
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
+const { iniciarFlujo, procesarPaso } = require("./flow");
+const { guardarHistorial } = require("./dbSave");
+
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-const flow = require("./flow");
-const { guardarHistorial } = require("./utils-db");
+// WhatsAuto envía x-www-form-urlencoded → necesitamos esto:
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
 
-// ===============================
-// ⚙️ CONFIGURACIÓN DE EXPRESS
-// ===============================
+// Sesiones por teléfono
+const sesiones = {};
 
-// WhatsAuto envía los datos como: app=XX&sender=XX&phone=XX...
-app.use(bodyParser.text({ type: "*/*" })); 
-
-// ===============================
-// 🧠 DECODIFICAR EL BODY DE WHATSAUTO
-// ===============================
-function decodeWhatsAutoBody(rawBody) {
-  if (!rawBody || typeof rawBody !== "string") return null;
-
-  try {
-    const params = new URLSearchParams(rawBody);
-    return {
-      app: params.get("app"),
-      sender: params.get("sender"),
-      phone: params.get("phone"),
-      message: params.get("message"),
-      type: params.get("type") || "text"
-    };
-  } catch (err) {
-    console.log("❌ Error parseando WhatsAuto:", rawBody);
-    return null;
+function obtenerSesion(phone) {
+  if (!sesiones[phone]) {
+    console.log("🆕 Nueva sesión creada:", phone);
+    sesiones[phone] = iniciarFlujo({}, phone);
   }
+  return sesiones[phone];
 }
 
-// ===============================
-// 📌 ENDPOINT PRINCIPAL
-// ===============================
+/* ===========================================================
+   ENDPOINT PRINCIPAL WHATSAPP
+   =========================================================== */
 app.post("/whatsapp", async (req, res) => {
   try {
-    console.log("🟣 BODY CRUDO RECIBIDO:", req.body);
+    const raw = req.body;
+    console.log("🟣 BODY DECODIFICADO:", raw);
 
-    const data = decodeWhatsAutoBody(req.body);
+    const phone = raw.phone;
+    const message = raw.message;
 
-    if (!data || !data.phone || !data.message) {
-      console.log("❌ ERROR: Body inválido o vacío");
-      return res.json({ reply: "Error en el mensaje recibido" });
+    if (!phone || !message) {
+      console.log("❌ Payload incompleto");
+      return res.json({ reply: "Error de formato" });
     }
 
-    console.log("🟣 BODY DECODIFICADO:", data);
+    const state = obtenerSesion(phone);
 
-    const phone = data.phone.trim();
-    const message = data.message.trim();
-
-    console.log("📩 MENSAJE RECIBIDO:", { phone, message });
-
-    // ===============================
-    // 🗄️ GUARDAR HISTORIAL
-    // ===============================
     await guardarHistorial(phone, message, "cliente");
 
-    // ===============================
-    // 🤖 PROCESAR MENSAJE EN EL FLUJO
-    // ===============================
-    const respuesta = await flow.procesarMensaje(phone, message);
+    const respuesta = await procesarPaso(state, message);
 
-    // ===============================
-    // 🧾 GUARDAR RESPUESTA DEL BOT
-    // ===============================
     await guardarHistorial(phone, respuesta, "bot");
 
     console.log("🤖 RESPUESTA DEL BOT:", respuesta);
 
-    return res.json({ reply: respuesta });
-
-  } catch (err) {
-    console.error("❌ ERROR EN /whatsapp:", err);
-    return res.json({ reply: "Ocurrió un error procesando tu mensaje 😔" });
+    res.json({ reply: respuesta });
+  } catch (e) {
+    console.log("❌ ERROR EN /whatsapp:", e);
+    res.json({ reply: "Ocurrió un error, inténtalo nuevamente." });
   }
 });
 
-// ===============================
-// 🟢 SERVIDOR
-// ===============================
-app.get("/", (req, res) => {
-  res.send("Luna Bot está funcionando correctamente ✔️");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`);
-});
+/* ===========================================================
+   SERVIDOR
+   =========================================================== */
+app.listen(PORT, () =>
+  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`)
+);
