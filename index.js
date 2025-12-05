@@ -1,166 +1,109 @@
 require("dotenv").config();
 const express = require("express");
-const rules = require("./rules");
-const flow = require("./flow");
-const supabase = require("./supabase");
-const { clienteExiste } = require("./utils-db");
+const bodyParser = require("body-parser");
+const qs = require("qs");
+
 const { guardarHistorial } = require("./dbSave");
+const flow = require("./flow");
+const { clienteExiste } = require("./utils-db");
 
 const app = express();
+app.use(bodyParser.text({ type: "*/*" }));
 
-// WhatsAuto envía application/x-www-form-urlencoded
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-// Sesiones activas por número
-let sessions = {};
+// Sesiones en memoria (puedes moverlas luego a Supabase si quieres persistencia)
+const sesiones = {};
 
 /* ======================================================
-   RUTA DE SALUD DEL BOT
+   🟣 DECODIFICAR BODY QUE WHATAUTO ENVÍA COMO TEXT/FORM
 ====================================================== */
-app.get("/", (req, res) => {
-  res.send("✨ Luna Bot activo y funcionando correctamente ✨");
-});
+function parseWhatsAutoBody(rawBody) {
+  try {
+    const body = qs.parse(rawBody);
+    return {
+      app: body.app || null,
+      sender: body.sender || null,
+      phone: body.phone || null,
+      message: body.message || null,
+      type: body.type || "text"
+    };
+  } catch (err) {
+    console.error("❌ Error intentando parsear el body:", err);
+    return null;
+  }
+}
 
 /* ======================================================
-   ENDPOINT PRINCIPAL PARA WHATSAPP
+   🟣 WEBHOOK PRINCIPAL DEL BOT
 ====================================================== */
 app.post("/whatsapp", async (req, res) => {
   try {
-    console.log("🟣 BODY DECODIFICADO:", req.body);
+    console.log("🟣 BODY CRUDO RECIBIDO:", req.body);
 
-    const phone = req.body.phone;
-    let message = req.body.message;
+    const data = parseWhatsAutoBody(req.body);
 
-    // Validación mínima
-    if (!phone || !message) {
-      console.log("❌ ERROR: request inválido.");
-      return res.json({ reply: "No recibí un mensaje válido." });
+    if (!data || !data.phone || !data.message) {
+      console.log("❌ ERROR: Body inválido o sin datos necesarios");
+      return res.json({ reply: "Hubo un error recibiendo tu mensaje." });
     }
+
+    console.log("🟣 BODY DECODIFICADO:", data);
+
+    const phone = data.phone.trim();
+    const message = data.message.trim();
 
     console.log("📩 MENSAJE RECIBIDO:", { phone, message });
 
-    // Reemplazo de mensajes de voz por texto normalizado
-    if (message.includes("🎤")) {
-      message = "mensaje de voz";
-    }
-
-    // Guardar historial cliente ↩
-    guardarHistorial(phone, message, "cliente");
-
-    /* ======================================================
-       SI NO EXISTE SESIÓN, SE CREA Y SE EJECUTA BIENVENIDA + VALIDACIÓN
-    ====================================================== */
-    if (!sessions[phone]) {
+    // Crear sesión si no existe
+    if (!sesiones[phone]) {
+      sesiones[phone] = {
+        phone,
+        step: "comuna",       // Primer paso del flujo
+        comuna: null,
+        pedido: [],
+        datos: {},
+        fechaEntrega: null,
+        horarioEntrega: null
+      };
       console.log("🆕 Nueva sesión creada:", phone);
-
-      sessions[phone] = flow.iniciarFlujo({}, phone);
-
-      const estado = sessions[phone];
-
-      // 1) Enviar bienvenida
-      const saludo = rules.bienvenida;
-      guardarHistorial(phone, saludo, "bot");
-
-      // 2) Validación inmediata del cliente
-      const existe = await clienteExiste(phone, supabase);
-
-      if (!existe) {
-        estado.clienteNuevo = true;
-        estado.step = "solicitar_comuna";
-
-        const reply =
-          saludo +
-          "\n\nAquí tienes nuestro catálogo:\n\n" +
-          rules.catalogo +
-          "\n" +
-          "\n¿En qué comuna será el despacho?";
-
-        console.log("🤖 RESPUESTA DEL BOT:", reply);
-        guardarHistorial(phone, reply, "bot");
-
-        return res.json({ reply });
-      }
-
-      // Cliente existente
-      estado.clienteNuevo = false;
-      estado.step = "tomar_pedido";
-
-      const reply =
-        saludo + "\n\nBienvenido nuevamente 😊 ¿Qué deseas pedir hoy?";
-
-      console.log("🤖 RESPUESTA DEL BOT:", reply);
-      guardarHistorial(phone, reply, "bot");
-
-      return res.json({ reply });
     }
 
-    /* ======================================================
-       SI YA HAY SESIÓN, CONTINUAR EL FLUJO
-    ====================================================== */
-    const state = sessions[phone];
+    const state = sesiones[phone];
 
-    // Reinicio manual del flujo al decir "hola"
-    if (message.toLowerCase().trim() === "hola") {
-      console.log("🔄 Reiniciando flujo por saludo");
-
-      sessions[phone] = flow.iniciarFlujo({}, phone);
-      const estado = sessions[phone];
-
-      const saludo = rules.bienvenida;
-      guardarHistorial(phone, saludo, "bot");
-
-      const existe = await clienteExiste(phone, supabase);
-
-      if (!existe) {
-        estado.clienteNuevo = true;
-        estado.step = "solicitar_comuna";
-
-        const reply =
-          saludo +
-          "\n\nAquí tienes nuestro catálogo:\n\n" +
-          rules.catalogo +
-          "\n" +
-          rules.comunas +
-          "\n¿En qué comuna será el despacho?";
-
-        guardarHistorial(phone, reply, "bot");
-
-        return res.json({ reply });
-      }
-
-      estado.clienteNuevo = false;
-      estado.step = "tomar_pedido";
-
-      const reply = saludo + "\n\n¿Qué deseas pedir hoy?";
-      guardarHistorial(phone, reply, "bot");
-
-      return res.json({ reply });
-    }
+    // Guardar mensaje del cliente en historial
+    await guardarHistorial(phone, message, "cliente");
 
     /* ======================================================
-       PROCESAR PASO (INTELIGENCIA EMOCIONAL + GPT + UTILS)
-    ====================================================== */
+       ⚡ PROCESAR FLUJO DEL BOT
+    ======================================================= */
     const respuesta = await flow.procesarPaso(state, message);
+
+    // Guardamos respuesta en historial
+    await guardarHistorial(phone, respuesta, "bot");
 
     console.log("🤖 RESPUESTA DEL BOT:", respuesta);
 
-    guardarHistorial(phone, respuesta, "bot");
-
+    // Respuesta final a WhatsAuto
     return res.json({ reply: respuesta });
-  } catch (error) {
-    console.error("❌ ERROR EN /whatsapp:", error);
 
+  } catch (err) {
+    console.error("❌ ERROR EN /whatsapp:", err);
     return res.json({
-      reply:
-        "Hubo un inconveniente temporal 😔 Puedes intentar nuevamente en unos segundos."
+      reply: "Ocurrió un error procesando tu mensaje 😔 intenta nuevamente."
     });
   }
 });
 
 /* ======================================================
-   SERVIDOR LEVANTADO
+   🟢 ENDPOINT DE PRUEBA
 ====================================================== */
-app.listen(process.env.PORT || 3000, () =>
-  console.log("✨ Luna Bot funcionando correctamente en Render ✨")
-);
+app.get("/", (req, res) => {
+  res.send("Luna Bot activo 💫");
+});
+
+/* ======================================================
+   🚀 INICIAR SERVIDOR
+====================================================== */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`);
+});
