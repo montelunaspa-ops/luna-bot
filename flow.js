@@ -73,16 +73,19 @@ module.exports = {
     }
 
     // PREGUNTA
-    if (info.intencion === "pregunta") {
-      return (
-        emocion +
-        " " +
-        "Claro 😊 " +
-        info.texto_normalizado +
-        "\n\n" +
-        obtenerPreguntaDelPaso(state.step)
-      );
-    }
+    // ⚡ NUEVA LÓGICA DE PREGUNTAS BASADA EN CONOCIMIENTO
+if (info.intencion === "pregunta") {
+  const respuestaBot = await responderConocimiento(info.texto_normalizado);
+
+  return (
+    emocion +
+    " " +
+    respuestaBot +
+    "\n\n" +
+    obtenerPreguntaDelPaso(state.step)
+  );
+}
+
 
     // PEDIDO (si está en el paso correspondiente)
     if (info.intencion === "pedido" && state.step === "tomar_pedido") {
