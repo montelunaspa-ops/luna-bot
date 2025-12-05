@@ -1,64 +1,46 @@
-import OpenAI from "openai";
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const OpenAI = require("openai");
+const rules = require("./rules");
 
-export async function responderGPT({ mensajeOriginal, mensajeNormalizado, reglas, historial, cliente }) {
+const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+});
 
-  const historialTexto = historial
-    .map(h => `Cliente: ${h.mensaje_usuario}\nLuna: ${h.respuesta_bot}`)
-    .join("\n");
+module.exports = async function askLuna(userMessage, state) {
 
-  const prompt = `
-Eres Luna, asistente virtual de ${reglas.nombre_negocio}.
-Toda tu información proviene EXCLUSIVAMENTE de esta base de datos.
+    const prompt = `
+Eres Luna, asistente virtual de Delicias Monte Luna.
 
-== INFORMACIÓN DISPONIBLE ==
-Catálogo:
-${reglas.catalogo}
+REGLAS:
+${rules.reglas_globales}
 
-Comunas con despacho:
-${reglas.comunas_despacho}
+CATÁLOGO:
+${rules.catalogo}
 
-Horarios por comuna:
-${reglas.horarios_comuna}
+COMUNAS DE DESPACHO:
+${rules.comunas_despacho.join("\n")}
 
-Reglas:
-${reglas.reglas_negocio}
+HORARIOS:
+${JSON.stringify(rules.horarios, null, 2)}
 
-Flujo paso 1–5:
-${reglas.flujo_1}
-${reglas.flujo_2}
-${reglas.flujo_3}
-${reglas.flujo_4}
-${reglas.flujo_5}
+DATOS ADICIONALES:
+${rules.despacho_info}
+${rules.compra_minima}
+${rules.ubicacion}
 
-Regla global:
-${reglas.regla_global}
+ESTADO ACTUAL DEL CLIENTE:
+${JSON.stringify(state)}
 
-==== HISTORIAL ====
-${historialTexto}
+MENSAJE DEL CLIENTE:
+${userMessage}
 
-==== MENSAJE DEL CLIENTE ====
-${mensajeOriginal}
+RESPONDE SOLO TEXTO, NO USAR EMOJIS EXCEPTO EN RESÚMENES FINALES.
+    `;
 
-==== INSTRUCCIONES ====
-- Responde SIEMPRE en mensaje corto y claro.
-- Si el cliente hace preguntas fuera del flujo, respóndelas y vuelve a guiar.
-- No preguntes por la comuna si ya se preguntó muchas veces sin respuesta.
-- Si menciona un audio como “🎤 mensaje de voz”, pídele que lo escriba.
-- NUNCA repitas siempre la misma pregunta.
-- Mantén conversación natural: responde lo que pregunte.
-- Luego continúa el flujo según lo que falta.
+    const completion = await client.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 150
+    });
 
-Ahora responde como Luna:
-`;
-
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: prompt },
-      { role: "user", content: mensajeOriginal }
-    ]
-  });
-
-  return completion.choices[0].message.content.trim();
+    return completion.choices[0].message.content;
 }
