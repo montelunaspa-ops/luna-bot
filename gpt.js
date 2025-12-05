@@ -86,6 +86,35 @@ RESPUESTA:
 }
 
 /* ======================================================
+   🧠 VALIDAR COMUNA REAL EN CHILE (GPT)
+====================================================== */
+async function validarComunaChile(nombre) {
+  const prompt = `
+Eres un verificador experto de comunas de Chile.
+
+Tu tarea:
+1. Indica si el texto corresponde a una comuna REAL de Chile.
+2. Si existe, responde SOLO el nombre correcto de la comuna.
+3. Si NO existe, responde EXACTAMENTE: "NO".
+
+Ejemplo:
+"San migul" -> "San Miguel"
+"Quilicura" -> "Quilicura"
+"Macul" -> "Macul"
+"Locura" -> "NO"
+
+Comuna a validar: "${nombre}"
+`;
+
+  const result = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: prompt }]
+  });
+
+  return result.choices[0].message.content.trim();
+}
+
+/* ======================================================
    😊 INTELIGENCIA EMOCIONAL
 ====================================================== */
 function respuestaEmocional(emocion) {
@@ -108,5 +137,6 @@ function respuestaEmocional(emocion) {
 module.exports = {
   interpretarMensaje,
   responderConocimiento,
-  respuestaEmocional
+  respuestaEmocional,
+  validarComunaChile
 };
