@@ -1,12 +1,13 @@
+require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  console.warn("⚠️ SUPABASE_URL o SUPABASE_KEY no están definidas en .env");
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.log("❌ ERROR: Faltan variables SUPABASE_URL o SUPABASE_KEY");
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 module.exports = supabase;
