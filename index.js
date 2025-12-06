@@ -2,30 +2,33 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 
-// Capturar rawBody ANTES de los parsers
+const { iniciarFlujo, procesarPaso } = require("./flow");
+const { guardarHistorial } = require("./dbSave");
+
+// ===========================================================
+// 🟣 CAPTURAR RAW BODY (WHATAUTO LO NECESITA)
+// ===========================================================
 app.use((req, res, next) => {
-  let data = "";
-  req.setEncoding("utf8");
-
-  req.on("data", chunk => {
-    data += chunk;
-  });
-
+  let raw = "";
+  req.on("data", chunk => (raw += chunk));
   req.on("end", () => {
-    req.rawBody = data;
+    req.rawBody = raw;
     next();
   });
 });
 
+// ===========================================================
+// 🟣 PARSERS NORMALES
+// ===========================================================
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-
-const { iniciarFlujo, procesarPaso } = require("./flow");
-const { guardarHistorial } = require("./dbSave");
 
 // Sesiones en memoria
 const sesiones = {};
 
+// ===========================================================
+// 🟣 Decodificar mensajes x-www-form-urlencoded
+// ===========================================================
 function decodificarBody(rawBody) {
   try {
     const params = new URLSearchParams(rawBody);
@@ -34,23 +37,25 @@ function decodificarBody(rawBody) {
       obj[key] = decodeURIComponent(value.replace(/\+/g, " "));
     }
     return obj;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
+// ===========================================================
+// 🟣 Endpoint WhatsApp
+// ===========================================================
 app.post("/whatsapp", async (req, res) => {
   let body = req.body;
 
-  // Si WhatsAuto NO envió JSON → usar rawBody
+  // WhatsAuto manda body vacío → usar rawBody
   if (!body || Object.keys(body).length === 0) {
-    if (req.rawBody) {
-      body = decodificarBody(req.rawBody);
-    }
+    const raw = req.rawBody?.toString();
+    if (raw) body = decodificarBody(raw);
   }
 
   if (!body) {
-    console.log("❌ ERROR: No se pudo interpretar el body");
+    console.log("❌ ERROR: Body vacío");
     return res.json({ reply: "Hubo un error procesando tu mensaje." });
   }
 
@@ -58,8 +63,8 @@ app.post("/whatsapp", async (req, res) => {
   const message = body.message || "";
 
   if (!phone) {
-    console.log("❌ ERROR: WhatsAuto no envió phone.");
-    return res.json({ reply: "Error de formato recibido." });
+    console.log("❌ ERROR: WhatsAuto no envió el número del cliente");
+    return res.json({ reply: "Error: falta teléfono." });
   }
 
   // Guardar historial
@@ -75,11 +80,14 @@ app.post("/whatsapp", async (req, res) => {
   // Procesar mensaje
   const respuesta = await procesarPaso(state, message);
 
-  // Guardar respuesta del bot
+  // Guardar historial del bot
   await guardarHistorial(phone, respuesta, "bot");
 
   res.json({ reply: respuesta });
 });
 
+// ===========================================================
+// 🟣 Inicio del servidor
+// ===========================================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor iniciado en el puerto ${PORT}`));
