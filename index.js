@@ -1,9 +1,11 @@
-// ============================================================
-// ===============   LUNA BOT - BLOQUE 1/3   ==================
-// ===============   Dependencias y Config      ===============
-// ============================================================
+// index.js
+// Luna Bot - Delicias Monte Luna
+// Bot para WhatsApp (WhatsAuto) usando GPT-4o-mini y Supabase
+// Flujo completo de venta controlado por IA, solo texto.
 
-// Dependencias
+// =======================
+// 1. DEPENDENCIAS BÁSICAS
+// =======================
 import express from "express";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
@@ -12,28 +14,31 @@ import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
 
-// Inicialización express
+// =======================
+// 2. CONFIGURACIONES BASE
+// =======================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Parseo de JSON y x-www-form-urlencoded (WhatsAuto)
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// OpenAI
+// ---------- OpenAI ----------
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Supabase
+// ---------- Supabase ----------
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
+if (!supabaseUrl || !supabaseKey) {
+  console.error("❌ Faltan SUPABASE_URL o SUPABASE_KEY en .env");
+}
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// ============================================================
-// ================== SESIONES EN MEMORIA ======================
-// ============================================================
-
+// =======================================
+// 3. SESIONES EN MEMORIA (POR NÚMERO)
+// =======================================
 const sessions = {};
 
 function getSession(phone) {
@@ -43,7 +48,7 @@ function getSession(phone) {
       knownClient: false,
       checkedClient: false,
       comuna: null,
-      cart: [], // aquí va el listado de productos finales formateados
+      cart: [],
       customer: {
         nombre: null,
         direccion: null,
@@ -55,8 +60,6 @@ function getSession(phone) {
       },
       state: "inicio",
       orderSaved: false,
-      editingExistingOrder: false,
-      lastOrderId: null,
       history: [],
     };
   }
@@ -65,595 +68,339 @@ function getSession(phone) {
 
 function pushHistory(session, role, content) {
   session.history.push({ role, content });
-  if (session.history.length > 10) session.history = session.history.slice(-10);
+  if (session.history.length > 10) {
+    session.history = session.history.slice(-10);
+  }
 }
 
-// ============================================================
-// ============== CATÁLOGO COMPLETO Y FORMATEADO ==============
-// ============================================================
+// =======================================
+// 4. TEXTO DE REGLAS / CATÁLOGO (TAL CUAL)
+// =======================================
+const RULES_TEXT = `
+¡Hola! Soy Luna, asistente virtual de Delicias Monte Luna. 🌙✨
+Puedes hacer tu pedido fácilmente por la página www.monteluna.cl o por WhatsApp.
 
-const CATALOGO_TEXTO = `
-🍰 *QUEQUES PERUANOS*
-   Sabores:
-   • Chocolate
-   • Marmoleado
-   • Piña
-   • Vainilla
-   • Naranja
-   • Maracuyá
-   Porciones disponibles: 14, 16 o *sin cortar*
-   Tamaño: 28 cm diámetro, 10 cm alto
-   Precio: *$8.500*
+Catálogo:
 
-🍪 *GALLETAS Y DELICIAS (bandejas de 20 unidades)*
-   • Rellena de Manjar
-   • Alemana
-   • Giro Coco
-   • Almejitas
-   • Lengua de Gato
-   • Cocadas de Horno
-   • Alfajorcito
-   • Cachitos
-   Precio por bandeja: *$4.000*
+•	🍰 Queques Peruanos
+Sabores disponibles:
+o	Chocolate
+o	Marmoleado
+o	Piña
+o	Vainilla
+o	Naranja
+o	Maracuyá
+Porciones: 14, 16 o sin cortar
+Tamaño: 28 cm de diámetro, 10 cm de alto aproximadamente
+Precio: $8.500
 
-🧁 *MUFFINS*
-   • Muffin Chips (6 unidades) — *$3.500*
-   • Muffins Premium Surtidos (6 unidades: 1 Chocolate, 1 Red Velvet, 
-     1 Arándano, 1 Coco, 2 Chips) — *$5.000*
+•	🍪 Galletas y Delicias en Bandeja de 20 Unidades
+o	Rellena de Manjar
+o	Alemana
+o	Giro Coco
+o	Almejitas 
+o	Lengua de Gato
+o	Cocadas de Horno
+o	Alfajorcito
+o	Cachitos
+Precio: $4.000 (Bandeja por cada producto, no son surtidas)
 
-🤩 *DELICIAS PREMIUM*
-   • Alfajores Premium de Maicena (12 unidades, 8–9 cm) — *$6.000*
-   • Cachitos Manjar Premium (10 unidades, 11–12 cm) — *$6.000*
+•	🧁 Muffins
+o	Muffin Chips (6 Unidades, empaque individual): $3.500
+o	Muffins Premium Sabores Surtidos (6 Unidades, incluye: 1 Chocolate, 1 Red Velvet, 1 Arándano, 1 Coco, 2 Chips): $5.000
 
-📦 *QUEQUE ARTESANAL RECTANGULAR*
-   Sabores:
-   • Vainilla Chips
-   • Manzana
-   • Arándanos
-   Precio: *$3.000*
-   Oferta: *4 unidades por $10.000*
+•	🤩 Delicias Premium
+o	Alfajores Premium de Maicena (12 Unidades, 8-9 cm): $6.000
+o	Cachitos Manjar Premium (10 Unidades, 11-12 cm): $6.000
 
-Las entregas se realizan al día siguiente de realizar el pedido, excepto domingos.
+•	📦 Queque Artesanal Rectangular
+o	Sabores: Vainilla Chips, Manzana, Arándanos 
+Rectangular de 20 cm
+Precio: $3.000
+Oferta: 4 Unidades por $10.000 (sabores a tu elección)
+Las entregas se realizan al día siguiente de realizar el pedido, excepto los domingos.
 ¿En qué comuna vamos a despachar?
+
+
+Comunas de despacho
+•	Cerro Navia
+•	Cerrillos
+•	Conchalí
+•	Estación Central
+•	Independencia
+•	Lo Prado
+•	Lo Espejo (si es cerca de pedro Aguirre cerda y antes de Avenida Vespucio)
+•	Maipú (si es antes de Avenida Vespucio entre estación central y cerrillos)
+•	Pedro Aguirre Cerda
+•	Pudahuel (sur y norte)
+•	Quinta Normal
+•	Recoleta
+•	Renca
+•	Santiago Centro
+•	San Miguel
+•	San Joaquín
+
+Horarios aproximados de entrega por comuna
+•	Cerro Navia: 11-13 hrs
+•	Cerrillos: 11-13 hrs
+•	Conchalí: 12-14 hrs
+•	Estación Central: 9-11 hrs
+•	Independencia: 11-14 hrs
+•	Lo Prado: 11-13 hrs
+•	Lo Espejo: 10-12 hrs
+•	Maipú: 10-12 hrs
+•	Pedro Aguirre Cerda: 10-12 hrs
+•	Pudahuel: 12-14 hrs
+•	Quinta Normal: 10-13 hrs
+•	Recoleta: 11-13 hrs
+•	Renca: 10-13 hrs
+•	Santiago Centro: 9-11 hrs
+•	San Miguel: 10-12 hrs
+•	San Joaquín: 10-12 hrs
+
+
+
+Información adicional y reglas
+•	Domingos no se hacen despachos; pedidos recibidos el sábado y domingo se despachan el lunes
+•	Estamos ubicados en Calle Chacabuco 1120, Santiago Centro
+•	Entregas por ruta con varios pedidos, hora exacta de entrega no garantizada
+•	Métodos de pago: efectivo o débito
+•	Entregas presenciales en domicilio igualmente al dia siguiente en Calle Chacabuco 1120, Santiago Centro: lunes-viernes 10am a 11am y 6pm a 8pm, sábado 10am a 12pm, agendar previamente
+•	Horarios aproximados pueden variar en días festivos o de alto tráfico
 `;
 
-// Comunas vertical
-const COMUNAS_TEXTO = `
-Comunas con despacho:
-• Cerro Navia
-• Cerrillos
-• Conchalí
-• Estación Central
-• Independencia
-• Lo Prado
-• Lo Espejo (zona PAC → Vespucio)
-• Maipú (antes de Vespucio entre Estación Central y Cerrillos)
-• Pedro Aguirre Cerda
-• Pudahuel (sur y norte)
-• Quinta Normal
-• Recoleta
-• Renca
-• Santiago Centro
-• San Miguel
-• San Joaquín
+// =====================================================
+// 5. REGLAS DE FLUJO (TAL CUAL)
+// =====================================================
+const FLOW_RULES_TEXT = `
+FLUJO OBLIGATORIO DEL BOT (LUNA):
+
+1. En el momento que se reciba cualquier mensaje se da la bienvenida.
+2. Se valida el número de WhatsApp en la base de datos clientes:
+   - Si está en la base de datos clientes se omite el paso 3 y el paso 5.
+   - Si NO está en la base de datos clientes se envía el catálogo y se pregunta para qué comuna será despachado el pedido.
+3. Se valida la comuna:
+   - Si la comuna está dentro de las comunas con reparto:
+     - Informar el horario aproximado de entrega.
+     - Informar que NO hay compra mínima.
+     - Informar que el despacho es GRATUITO por compras mayores a $14.990.
+     - Si la compra es menor, el despacho sale en $2.400.
+   - Si NO tenemos reparto en la comuna:
+     - Ofrecer entrega en el domicilio Calle Chacabuco 1120, Santiago Centro.
+     - Si la persona acepta, se sigue al paso 4.
+     - Si no acepta, se despide amablemente.
+4. Preguntar por los productos, sabores, cantidades y porciones que el cliente desea, teniendo en cuenta SOLO los productos del catálogo.
+5. Luego de identificar que el cliente pidió todo lo que desea:
+   - Preguntar los datos para el despacho UNO POR UNO:
+     a) Nombre y apellido del cliente.
+     b) Dirección.
+     c) Teléfono adicional (si no se tiene, se usa el mismo de WhatsApp).
+6. Al identificar que el pedido está completo y verificar que los datos de despacho están correctos:
+   - Enviar al cliente un resumen de lo que pidió.
+   - Incluir datos de despacho, fecha de entrega y hora aproximada.
+   - Pedir que confirme.
+7. Al realizar la confirmación:
+   - Guardar toda la información en las tablas correspondientes.
+   - Enviar un mensaje al cliente indicando que el pedido quedó agendado.
+   - Al final de la conversación se envía un emoji de check verde (✅).
 `;
 
-const HORARIOS_ENTREGA = {
-  "Cerro Navia": "11-13 hrs",
-  Cerrillos: "11-13 hrs",
-  Conchalí: "12-14 hrs",
-  "Estación Central": "9-11 hrs",
-  Independencia: "11-14 hrs",
-  "Lo Prado": "11-13 hrs",
-  "Lo Espejo": "10-12 hrs",
-  Maipú: "10-12 hrs",
-  "Pedro Aguirre Cerda": "10-12 hrs",
-  Pudahuel: "12-14 hrs",
-  "Quinta Normal": "10-13 hrs",
-  Recoleta: "11-13 hrs",
-  Renca: "10-13 hrs",
-  "Santiago Centro": "9-11 hrs",
-  "San Miguel": "10-12 hrs",
-  "San Joaquín": "10-12 hrs",
-};
+// =====================================================
+// 6. HELPER: NORMALIZAR FECHA (PARCHE)
+// =====================================================
 
-// ============================================================
-// ================== REGLAS DEL FLUJO LUNA ====================
-// ============================================================
+function normalizarFecha(fechaIA) {
+  if (!fechaIA) return null;
 
-const FLOW_RULES = `
-REGLAS OBLIGATORIAS DEL BOT LUNA (VERSIÓN EXTENDIDA):
+  const f = String(fechaIA).toLowerCase().trim();
 
-1. Siempre responde en JSON válido.
-2. Siempre usa "reply", "state" y "data".
-3. El flujo general:
-   - inicio → preguntar_comuna
-   - preguntar_comuna → pedidos
-   - pedidos → datos_despacho
-   - datos_despacho → confirmacion
-   - confirmacion → finalizado
-4. PERO el flujo es flexible:
-   El cliente puede agregar productos en CUALQUIER momento.
-   Incluso después de confirmar.
-5. Si agrega productos después de confirmar:
-   - Cambiar session.orderSaved a false
-   - Cambiar state a "pedidos"
-   - Volver a generar resumen y pedir nueva confirmación.
-6. Formato obligatorio de producto:
-   {
-     "descripcion": "Queque Peruano Chocolate - Porción 16",
-     "cantidad": 2,
-     "categoria": "queques peruanos"
-   }
-7. Merge obligatorio de productos:
-   Si el cliente pide más unidades del mismo producto, sumar cantidad.
-8. Si falta información (sabor, porción, cantidad), preguntar SOLO lo necesario.
-9. Si el cliente pregunta cualquier cosa (horarios, precios, etc.), responder y retomar el flujo.
-10. Comunas deben mostrarse SIEMPRE en lista vertical.
-11. Catálogo debe mostrarse tabulado y limpio.
-`;
+  if (f.includes("mañana")) {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  }
 
-// ============================================================
-// ================== HELPERS PARA PRODUCTOS ===================
-// ============================================================
+  if (f.includes("hoy")) {
+    return new Date().toISOString().split("T")[0];
+  }
 
-// Detectar si dos productos son iguales según tu definición
-function productosIguales(a, b) {
-  return (
-    a.descripcion.toLowerCase() === b.descripcion.toLowerCase() &&
-    a.categoria.toLowerCase() === b.categoria.toLowerCase()
-  );
-}
+  const dias = {
+    lunes: 1,
+    martes: 2,
+    miercoles: 3,
+    miércoles: 3,
+    jueves: 4,
+    viernes: 5,
+    sabado: 6,
+    sábado: 6,
+    domingo: 0,
+  };
 
-// Agregar o mergear productos al carrito
-function agregarProductoAlCarrito(carrito, nuevo) {
-  for (let item of carrito) {
-    if (productosIguales(item, nuevo)) {
-      item.cantidad += nuevo.cantidad;
-      return carrito;
+  for (const dia in dias) {
+    if (f.includes(dia)) {
+      const hoy = new Date();
+      const target = new Date();
+      const diff = (dias[dia] + 7 - hoy.getDay()) % 7;
+      target.setDate(hoy.getDate() + diff);
+      return target.toISOString().split("T")[0];
     }
   }
-  carrito.push(nuevo);
-  return carrito;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return f;
+
+  return calcularFechaEntrega();
 }
 
-// Crear descripción estándar
-function construirDescripcionProducto({ categoria, sabor, porcion, especifico }) {
-  if (categoria === "queques peruanos") {
-    return `Queque Peruano ${sabor} - Porción ${porcion}`;
-  }
-  if (categoria === "galletas") {
-    return `Galletas ${sabor} - Bandeja 20 unidades`;
-  }
-  if (categoria === "muffins") {
-    return sabor; // Ejemplo: "Pack Muffins Premium"
-  }
-  if (categoria === "delicias premium") {
-    return especifico;
-  }
-  if (categoria === "queque artesanal rectangular") {
-    return `Queque Rectangular ${sabor}`;
-  }
-  return especifico;
-}
+// =====================================================
+// 7. FECHA ENTREGA (TU CÓDIGO ORIGINAL, intacto)
+// =====================================================
 
-// ============================================================
-// ===============    HELPERS GENERALES EXTRA   ===============
-// ============================================================
-
-// Calcular fecha entrega
 function calcularFechaEntrega() {
   const hoy = new Date();
-  const entrega = new Date(hoy);
+  let entrega = new Date(hoy);
   entrega.setDate(entrega.getDate() + 1);
 
-  if (entrega.getDay() === 0) entrega.setDate(entrega.getDate() + 1);
+  const manana = entrega.getDay();
+  if (manana === 0) {
+    entrega.setDate(entrega.getDate() + 1);
+  }
 
   return entrega.toISOString().split("T")[0];
 }
-// ============================================================
-// ===============   LUNA BOT - BLOQUE 2/3   ==================
-// ===============   Inteligencia y Parsing     ===============
-// ============================================================
 
-// ============================================================
-// =============== ENSAMBLE DEL MEGA PROMPT IA ================
-// ============================================================
-
-const SYSTEM_PROMPT = `
-Eres *Luna*, asistente virtual de Delicias Monte Luna.
-Debes responder SIEMPRE en JSON válido con este formato exacto:
-
-{
-  "reply": "texto al cliente",
-  "state": "inicio | preguntar_comuna | pedidos | datos_despacho | confirmacion | finalizado",
-  "data": {
-    "comuna": null,
-    "productos": [],
-    "datos_cliente": {
-      "nombre": null,
-      "direccion": null,
-      "telefono_alt": null
-    },
-    "pedido_completo": false,
-    "confirmado": false,
-    "horario_entrega": null,
-    "fecha_entrega": null
-  }
-}
-
-REGLAS CRÍTICAS:
-1. SIEMPRE responde JSON válido.
-2. El flujo es FLEXIBLE: el cliente puede agregar productos en cualquier momento.
-3. Si el cliente agrega productos después de confirmar:
-   • marcar "confirmado": false
-   • regresar a state: "pedidos"
-4. Productos siempre deben ir en este formato:
-
-{
-  "descripcion": "Queque Peruano Chocolate - Porción 16",
-  "cantidad": 2,
-  "categoria": "queques peruanos"
-}
-
-5. Merge obligatorio de productos iguales.
-6. Si falta sabor o porción, debes preguntar SOLO eso.
-7. Si el mensaje es pregunta libre, respóndela y luego retoma el flujo.
-8. Catálogo y comunas SIEMPRE en formato limpio, tabulado y vertical.
-9. NO inventes productos.
-10. NO inventes comunas.
-11. NO inventes métodos de pago.
-
-Aquí tienes el catálogo EXACTO:
-
-${CATALOGO_TEXTO}
-
-Comunas permitidas:
-
-${COMUNAS_TEXTO}
-
-Horarios aproximados (solo usar si la comuna es válida):
-${Object.entries(HORARIOS_ENTREGA)
-  .map(([c, h]) => `• ${c}: ${h}`)
-  .join("\n")}
-
-FLUJO BASE:
-1. inicio → preguntar_comuna
-2. validar comuna → pedidos
-3. pedidos → datos_despacho
-4. datos_despacho → confirmacion
-5. confirmacion → finalizado
-`;
-
-// ============================================================
-// ====================== askLunaAI() ==========================
-// ============================================================
+// =====================================================
+// 8. LLAMADO A GPT-4O-MINI (TU CÓDIGO ORIGINAL)
+// =====================================================
 
 async function askLunaAI({ session, userMessage }) {
-  const contexto = {
-    state: session.state,
-    comuna: session.comuna,
-    cart: session.cart,
-    customer: session.customer,
-    delivery: session.delivery,
-    orderSaved: session.orderSaved,
+  const knownClientFlag = session.knownClient ? "sí" : "no";
+  const contextoJSON = {
+    estado_sesion: session.state,
+    telefono: session.phone,
+    cliente_conocido: knownClientFlag,
+    comuna_actual: session.comuna,
+    carrito_actual: session.cart,
+    datos_cliente: session.customer,
+    entrega: session.delivery,
   };
 
+  const systemMessage = `
+Eres Luna, asistente virtual de Delicias Monte Luna.
+Eres un BOT de ventas por WhatsApp que SIGUE ESTRICTAMENTE las reglas del flujo y el texto de catálogo proporcionado.
+
+${FLOW_RULES_TEXT}
+
+${RULES_TEXT}
+
+Debes responder SIEMPRE en JSON válido.
+`;
+
   const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
-    ...session.history.map((h) => ({ role: h.role, content: h.content })),
+    { role: "system", content: systemMessage },
+    ...session.history.map((m) => ({ role: m.role, content: m.content })),
     {
       role: "user",
-      content: `Mensaje del cliente: "${userMessage}".\nContexto: ${JSON.stringify(
-        contexto
+      content: `Mensaje del cliente: "${userMessage}". Contexto: ${JSON.stringify(
+        contextoJSON
       )}`,
     },
   ];
 
-  let completion;
-  try {
-    completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages,
-      temperature: 0.2,
-    });
-  } catch (err) {
-    console.error("❌ Error OpenAI:", err);
-    return null;
-  }
-
-  let raw = completion.choices[0]?.message?.content || "";
-  console.log("🤖 RAW IA:", raw);
-
-  // Reintentar si no es JSON
-  let parsed = null;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    console.log("⚠️ IA devolvió texto fuera de JSON, intentando corregir…");
-
-    const fixed = raw.substring(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
-    try {
-      parsed = JSON.parse(fixed);
-    } catch {
-      parsed = {
-        reply:
-          "Tuve un problema procesando el mensaje, ¿puedes repetirlo por favor? 😊",
-        state: session.state,
-        data: {},
-      };
-    }
-  }
-
-  return parsed;
-}
-
-// ============================================================
-// =============== PARSEADOR DE PRODUCTOS ======================
-// ============================================================
-
-const SABORES_QUEQUE = [
-  "chocolate",
-  "marmoleado",
-  "piña",
-  "vainilla",
-  "naranja",
-  "maracuyá",
-];
-
-const PORCIONES = ["14", "16", "sin cortar"];
-
-const GALLETAS = [
-  "rellena de manjar",
-  "alemana",
-  "giro coco",
-  "almejitas",
-  "lengua de gato",
-  "cocadas de horno",
-  "alfajorcito",
-  "cachitos",
-];
-
-// Detectar categoría por palabras clave
-function detectarCategoria(msg) {
-  msg = msg.toLowerCase();
-  if (
-    SABORES_QUEQUE.some((s) => msg.includes(s)) ||
-    msg.includes("queque") ||
-    msg.includes("torta")
-  ) {
-    return "queques peruanos";
-  }
-  if (GALLETAS.some((g) => msg.includes(g))) {
-    return "galletas";
-  }
-  if (msg.includes("muffin") || msg.includes("premium")) {
-    return "muffins";
-  }
-  if (msg.includes("alfajor") || msg.includes("cachito premium")) {
-    return "delicias premium";
-  }
-  if (msg.includes("rectangular") || msg.includes("manzana")) {
-    return "queque artesanal rectangular";
-  }
-  return null;
-}
-
-// Detectar sabor
-function detectarSabor(msg) {
-  msg = msg.toLowerCase();
-  const all = [...SABORES_QUEQUE, ...GALLETAS];
-  return all.find((s) => msg.includes(s)) || null;
-}
-
-// Detectar porción
-function detectarPorcion(msg) {
-  msg = msg.toLowerCase();
-  if (msg.includes("14")) return "14";
-  if (msg.includes("16")) return "16";
-  if (msg.includes("sin cortar")) return "sin cortar";
-  return null;
-}
-
-// Detectar cantidad
-function detectarCantidad(msg) {
-  const m = msg.match(/\b(\d+)\b/);
-  return m ? parseInt(m[1]) : 1;
-}
-
-// Construye objeto producto final
-function parsearProducto(msg) {
-  const categoria = detectarCategoria(msg);
-  if (!categoria) return null;
-
-  const sabor = detectarSabor(msg);
-  const porcion = categoria === "queques peruanos" ? detectarPorcion(msg) : null;
-  const cantidad = detectarCantidad(msg);
-
-  let descripcion = construirDescripcionProducto({
-    categoria,
-    sabor,
-    porcion,
-    especifico: msg,
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages,
+    temperature: 0.2,
   });
 
-  return {
-    descripcion,
-    cantidad,
-    categoria,
-  };
+  return completion.choices[0]?.message?.content || "";
 }
 
-// ============================================================
-// ========== APLICAR RESPUESTA IA A LA SESIÓN =================
-// ============================================================
+// =====================================================
+// 9. GUARDAR EN SUPABASE (CORRECCIÓN FECHA)
+// =====================================================
 
-function aplicarRespuestaAI(session, ai) {
-  const data = ai.data || {};
-
-  // Estado
-  if (ai.state) session.state = ai.state;
-
-  // Comuna
-  if (data.comuna) {
-    session.comuna = data.comuna;
-  }
-
-  // Merge productos
-  if (Array.isArray(data.productos) && data.productos.length > 0) {
-    for (const p of data.productos) {
-      if (p.descripcion && p.cantidad) {
-        session.cart = agregarProductoAlCarrito(session.cart, p);
-      }
-    }
-  }
-
-  // Datos cliente
-  if (data.datos_cliente) {
-    session.customer = {
-      ...session.customer,
-      ...data.datos_cliente,
-    };
-  }
-
-  // Fecha entrega
-  if (data.fecha_entrega) {
-    session.delivery.fecha_entrega = data.fecha_entrega;
-  }
-
-  if (data.horario_entrega) {
-    session.delivery.horario_aprox = data.horario_entrega;
-  }
-
-  // Confirmación
-  if (data.confirmado === true) {
-    session.state = "confirmacion";
-  }
-
-  return ai.reply || "Listo 😊";
-}
-// ============================================================
-// ===============   LUNA BOT - BLOQUE 3/3   ==================
-// ============   Endpoint, Guardado, Servidor    =============
-// ============================================================
-
-// ============================================================
-// ================== GUARDAR CLIENTE EN BD ====================
-// ============================================================
-
-async function upsertCliente(session) {
+async function upsertClienteFromSession(session) {
   const { phone, customer, comuna } = session;
+  if (!phone) return;
 
   const { nombre, direccion, telefono_alt } = customer;
 
-  const { data, error } = await supabase
-    .from("clientes")
-    .upsert(
-      {
-        telefono: phone,
-        nombre: nombre || null,
-        direccion: direccion || null,
-        comuna: comuna || null,
-        telefono_alt: telefono_alt || null,
-      },
-      { onConflict: "telefono" }
-    )
-    .select()
-    .single();
+  const { error } = await supabase.from("clientes").upsert(
+    {
+      telefono: phone,
+      nombre: nombre || null,
+      direccion: direccion || null,
+      comuna: comuna || null,
+      telefono_alt: telefono_alt || null,
+    },
+    { onConflict: "telefono" }
+  );
 
-  if (error) console.error("❌ Error guardando cliente:", error);
-  else console.log("✅ Cliente guardado:", data.telefono);
+  if (error) console.error("❌ Error upsert cliente:", error);
 }
 
-// ============================================================
-// ================== GUARDAR PEDIDO EN BD =====================
-// ============================================================
+async function guardarPedidoCompleto(session, resumenTexto, dataAI) {
+  try {
+    const fecha_entrega =
+      normalizarFecha(dataAI?.fecha_entrega) ||
+      session.delivery.fecha_entrega ||
+      calcularFechaEntrega();
 
-async function guardarPedido(session) {
-  console.log("💾 Guardando pedido completo…");
+    const horario_entrega =
+      dataAI?.horario_entrega || session.delivery.horario_aprox || null;
 
-  const fechaEntrega =
-    session.delivery.fecha_entrega || calcularFechaEntrega();
-  const horario =
-    session.delivery.horario_aprox ||
-    (session.comuna ? HORARIOS_ENTREGA[session.comuna] : null);
+    const { data: pedido, error: errorPedido } = await supabase
+      .from("pedidos")
+      .insert({
+        cliente_telefono: session.phone,
+        comuna: session.comuna,
+        fecha_entrega,
+        horario_aprox: horario_entrega,
+        resumen_texto: resumenTexto,
+        total_estimado: null,
+        estado: "pendiente",
+      })
+      .select()
+      .single();
 
-  const resumen =
-    session.cart
-      .map((p) => `${p.cantidad} × ${p.descripcion}`)
-      .join(", ") || "Sin productos";
+    if (errorPedido) {
+      console.error("❌ Error insert pedido:", errorPedido);
+      return;
+    }
 
-  // Crear pedido
-  const { data: pedido, error: errorPedido } = await supabase
-    .from("pedidos")
-    .insert({
-      cliente_telefono: session.phone,
-      comuna: session.comuna,
-      fecha_entrega: fechaEntrega,
-      horario_aprox: horario,
-      resumen_texto: resumen,
-      estado: "pendiente",
-    })
-    .select()
-    .single();
+    if (Array.isArray(session.cart)) {
+      const detalles = session.cart.map((item) => ({
+        pedido_id: pedido.id,
+        descripcion: item.descripcion || "",
+        cantidad: item.cantidad || 1,
+        categoria: item.categoria || null,
+        precio_unitario: null,
+      }));
 
-  if (errorPedido) {
-    console.error("❌ Error insertando pedido:", errorPedido);
-    return;
+      await supabase.from("pedidos_detalle").insert(detalles);
+    }
+  } catch (err) {
+    console.error("❌ Error guardando pedido:", err);
   }
-
-  console.log("📦 Pedido creado con ID:", pedido.id);
-
-  // Guardar detalle
-  const detalles = session.cart.map((item) => ({
-    pedido_id: pedido.id,
-    descripcion: item.descripcion,
-    cantidad: item.cantidad,
-    categoria: item.categoria,
-  }));
-
-  const { error: errorDetalle } = await supabase
-    .from("pedidos_detalle")
-    .insert(detalles);
-
-  if (errorDetalle)
-    console.error("❌ Error insertando detalle:", errorDetalle);
-  else console.log("🧾 Detalles guardados correctamente.");
-
-  return pedido;
 }
 
-// ============================================================
-// ===============  ENDPOINT PRINCIPAL /whatsapp ===============
-// ============================================================
+// =====================================================
+// 10. ENDPOINT PRINCIPAL WHATSAUTO (TU CÓDIGO ORIGINAL)
+// =====================================================
 
 app.post("/whatsapp", async (req, res) => {
-  console.log("===========================================");
-  console.log("📥 NEW REQUEST");
-  console.log("📥 HEADERS:", req.headers);
-  console.log("📥 RAW BODY:", req.body);
-  console.log("===========================================");
+  console.log("📥 BODY:", req.body);
 
-  // WhatsAuto envía application/x-www-form-urlencoded
-  let phone = req.body.phone || req.body.from;
-  let message = req.body.message;
-
+  const { phone, message } = req.body;
   if (!phone || !message) {
-    console.log("⚠️ Payload incompleto.");
     return res.json({
       reply:
-        "No pude entender tu mensaje, ¿puedes escribirlo nuevamente por favor? 😊",
+        "Hola, soy Luna ✨ No pude leer tu mensaje, ¿puedes enviarlo nuevamente?",
     });
   }
 
-  phone = phone.trim();
-
-  console.log("📥 BODY PROCESADO:", { phone, message });
-
-  // Obtener sesión del cliente
   const session = getSession(phone);
 
-  // Cargar cliente si es primera vez
   if (!session.checkedClient) {
     const { data: cliente } = await supabase
       .from("clientes")
@@ -662,12 +409,12 @@ app.post("/whatsapp", async (req, res) => {
       .maybeSingle();
 
     if (cliente) {
-      console.log("ℹ️ Cliente conocido:", phone);
       session.knownClient = true;
       session.customer.nombre = cliente.nombre;
       session.customer.direccion = cliente.direccion;
       session.customer.telefono_alt = cliente.telefono_alt;
       session.comuna = cliente.comuna;
+      console.log("ℹ️ Cliente conocido:", phone);
     } else {
       console.log("ℹ️ Cliente nuevo:", phone);
     }
@@ -675,59 +422,68 @@ app.post("/whatsapp", async (req, res) => {
     session.checkedClient = true;
   }
 
-  // Guardar mensaje en historial
   pushHistory(session, "user", message);
 
-  // Llamar a IA
-  const ai = await askLunaAI({ session, userMessage: message });
-
-  if (!ai) {
-    console.log("⚠️ IA devolvió nulo.");
-    return res.json({
-      reply:
-        "Tuve un problema técnico al responder. ¿Podrías escribir nuevamente? 🙏",
-    });
+  let aiRaw;
+  try {
+    aiRaw = await askLunaAI({ session, userMessage: message });
+    console.log("🤖 RAW IA:", aiRaw);
+  } catch (err) {
+    console.error("❌ Error OpenAI:", err);
+    return res.json({ reply: "Error temporal, intenta nuevamente 🙏" });
   }
 
-  // Aplicar cambios a la sesión
-  const reply = aplicarRespuestaAI(session, ai);
+  let ai;
+  try {
+    ai = JSON.parse(aiRaw);
+  } catch {
+    return res.json({ reply: aiRaw });
+  }
 
-  // Si se confirmó → guardar pedido
-  const confirmado = ai?.data?.confirmado === true;
+  const replyText = ai.reply || "Luna está procesando tu pedido ✨";
+  const nextState = ai.state || session.state;
+  const data = ai.data || {};
 
-  if (confirmado) {
-    // Guardar cliente siempre
-    await upsertCliente(session);
+  session.state = nextState;
 
-    // Guardar pedido
-    await guardarPedido(session);
+  if (data.comuna) session.comuna = data.comuna;
+  if (data.productos) session.cart = data.productos;
+  if (data.datos_cliente) {
+    session.customer = { ...session.customer, ...data.datos_cliente };
+  }
+  if (data.fecha_entrega) session.delivery.fecha_entrega = data.fecha_entrega;
+  if (data.horario_entrega)
+    session.delivery.horario_aprox = data.horario_entrega;
 
-    // Permitir agregar productos después de confirmar
+  const confirmado = !!data.confirmado;
+
+  if (confirmado && !session.orderSaved) {
+    await upsertClienteFromSession(session);
+
+    const resumenTexto =
+      `Resumen de pedido para ${session.phone}: ` +
+      (session.cart || [])
+        .map((p) => `${p.cantidad} x ${p.descripcion}`)
+        .join(", ");
+
+    await guardarPedidoCompleto(session, resumenTexto, data);
+
     session.orderSaved = true;
     session.state = "finalizado";
-
-    console.log("🎉 Pedido agendado con éxito.");
-
-    return res.json({
-      reply: reply + " ✅",
-    });
   }
 
-  // Guardar respuesta en historial
-  pushHistory(session, "assistant", reply);
+  pushHistory(session, "assistant", replyText);
 
-  // Enviar la respuesta final a WhatsAuto
-  return res.json({ reply });
+  res.json({ reply: replyText });
 });
 
-// ============================================================
-// ========================= SERVIDOR ==========================
-// ============================================================
-
+// =======================
+// 11. SERVIDOR HTTP
+// =======================
 app.get("/", (req, res) => {
-  res.send("Luna Bot operativo ✅");
+  res.send("Luna Bot - Delicias Monte Luna está funcionando ✅");
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Luna Bot escuchando en puerto ${PORT}`);
+  console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
 });
