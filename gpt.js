@@ -1,64 +1,126 @@
 const OpenAI = require("openai");
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const rules = require("./rules");
 
-// Interpreta qué quiso decir el cliente
-async function interpretarMensaje(texto) {
-  const prompt = `
-Clasifica el mensaje del cliente con estas reglas:
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
-1. intencion = saludo | pregunta | pedido | comuna | desconocido
-2. pregunta: si el usuario pregunta "donde entregan", "que venden", "reparten en X"
-3. comuna: si menciona una comuna (aunque esté mal escrita)
-4. pedido: si nombra un producto o cantidad.
-5. devolución:
+/* ============================================
+   INTERPRETAR MENSAJE (intención básica)
+============================================ */
+async function interpretarMensaje(mensaje) {
+  try {
+    const prompt = `
+Eres un clasificador de mensajes para un bot de WhatsApp que vende pastelería.
+
+Debes analizar el mensaje y devolver SOLO un JSON con esta forma:
 {
-  "intencion": "",
-  "texto": "",
-  "comuna": "",
-  "pedido": "",
+  "intencion": "saludo | pregunta | pedido | otro",
+  "texto_normalizado": "",
   "pregunta": ""
 }
-Mensaje: "${texto}"`;
 
-  const r = await client.chat.completions.create({
-    model: "gpt-4o",
-    messages: [{ role: "user", content: prompt }]
-  });
+Reglas:
+- "saludo" si dice hola, buenas, buen día, etc.
+- "pregunta" si hay signos de pregunta o comienza con qué, donde/dónde, cómo, cuánto, tienen, vende(n), etc.
+- "pedido" si menciona explícitamente productos, cantidades o "quiero", "me das", "necesito" algo del catálogo (queques, muffins, galletas, alfajores, cachitos, queque rectangular).
+- En caso de duda, usar "otro".
+- texto_normalizado: versión simple del mensaje en minúsculas.
+- pregunta: si es pregunta, copia aquí la pregunta principal; en caso contrario, deja cadena vacía.
 
-  try {
-    return JSON.parse(r.choices[0].message.content);
-  } catch {
-    return { intencion: "desconocido", texto };
+Mensaje del cliente:
+"${mensaje}"
+`;
+
+    const r = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.1,
+      messages: [{ role: "user", content: prompt }]
+    });
+
+    const raw = r.choices[0].message.content.trim();
+
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {
+        intencion: "otro",
+        texto_normalizado: mensaje.toLowerCase(),
+        pregunta: ""
+      };
+    }
+  } catch (e) {
+    console.error("❌ Error en interpretarMensaje:", e);
+    return {
+      intencion: "otro",
+      texto_normalizado: mensaje.toLowerCase(),
+      pregunta: ""
+    };
   }
 }
 
-// pregunta tipo FAQ usando rules
+/* ============================================
+   RESPONDER PREGUNTAS (FAQ / información)
+============================================ */
 async function responderConocimiento(pregunta) {
-  const prompt = `
-Responde esta pregunta SOLO con la información del negocio Delicias Monte Luna.
-Pregunta: ${pregunta}`;
+  try {
+    const prompt = `
+Eres Luna, asistente virtual de Delicias Monte Luna.
 
-  const r = await client.chat.completions.create({
-    model: "gpt-4o",
-    messages: [{ role: "user", content: prompt }]
-  });
+Responde de forma CORTA, CLARA y AMABLE usando SOLO esta información:
 
-  return r.choices[0].message.content;
+CATÁLOGO:
+${rules.catalogo}
+
+COMUNAS DE DESPACHO:
+${rules.comunasTexto}
+
+INFORMACIÓN GENERAL:
+${rules.baseConocimiento}
+
+Pregunta del cliente:
+"${pregunta}"
+`;
+
+    const r = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      messages: [{ role: "user", content: prompt }]
+    });
+
+    return r.choices[0].message.content.trim();
+  } catch (e) {
+    console.error("❌ Error en responderConocimiento:", e);
+    return "Puedo ayudarte con esa información 😊";
+  }
 }
 
-// validar comuna real
+/* ============================================
+   VALIDAR COMUNA DE CHILE (GPT)
+============================================ */
 async function validarComunaChile(texto) {
-  const prompt = `
-¿"${texto}" es una comuna de Chile?  
-Responde solo: "SI: nombre" o "NO"`;
+  try {
+    const prompt = `
+Valida si el siguiente texto contiene una comuna real de Chile:
 
-  const r = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }]
-  }).catch(() => null);
+"${texto}"
 
-  if (!r) return "NO";
-  return r.choices[0].message.content;
+Responde SOLO de estas dos formas:
+- "SI: NombreDeComuna"
+- "NO"
+`;
+
+    const r = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [{ role: "user", content: prompt }]
+    });
+
+    return r.choices[0].message.content.trim();
+  } catch (e) {
+    console.error("❌ Error en validarComunaChile:", e);
+    return "NO";
+  }
 }
 
 module.exports = {
