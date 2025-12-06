@@ -1,70 +1,86 @@
-const supabase = require("./supabase");
+const { supabase } = require("./supabase");
 
-/* ============================================
-   GUARDAR CLIENTE NUEVO
-============================================ */
-async function guardarClienteNuevo(phone, nombre, direccion, telefono2, comuna) {
-  const { error } = await supabase.from("clientes_detallados").insert({
-    telefono: phone,
-    nombre,
-    direccion,
-    telefono2,
-    comuna,
-    creado_en: new Date().toISOString()
-  });
+/* ===========================================================
+   🟢 GUARDAR PEDIDO TEMPORAL (pedidos_temporales)
+   =========================================================== */
+async function guardarPedidoTemporal(telefono, pedido) {
+  // Si ya existe un registro, lo actualizamos
+  const { data: existente } = await supabase
+    .from("pedidos_temporales")
+    .select("id")
+    .eq("telefono", telefono)
+    .maybeSingle();
 
-  if (error) console.log("❌ Error guardando cliente:", error);
+  if (existente) {
+    const { error } = await supabase
+      .from("pedidos_temporales")
+      .update({
+        pedido,
+        actualizado_en: new Date().toISOString()
+      })
+      .eq("id", existente.id);
+
+    if (error) console.error("❌ Error actualizando pedido temporal:", error);
+    return;
+  }
+
+  // Si NO existe, lo creamos
+  const { error } = await supabase
+    .from("pedidos_temporales")
+    .insert([
+      {
+        telefono,
+        pedido,
+      }
+    ]);
+
+  if (error) console.error("❌ Error guardando pedido temporal:", error);
 }
 
-/* ============================================
-   GUARDAR HISTORIAL
-============================================ */
-async function guardarHistorial(phone, mensaje, tipo = "cliente") {
-  const { error } = await supabase.from("historial").insert({
-    telefono: phone,
-    mensaje,
-    tipo, // "cliente" | "bot"
-    fecha: new Date().toISOString()
-  });
+/* ===========================================================
+   🟢 GUARDAR CLIENTE NUEVO (clientes_detallados)
+   =========================================================== */
+async function guardarClienteNuevo(telefono, nombre, direccion, telefono2, comuna) {
 
-  if (error) console.log("❌ Error guardando historial:", error);
+  const { error } = await supabase
+    .from("clientes_detallados")
+    .insert([
+      {
+        telefono,
+        nombre,
+        direccion,
+        telefono2,
+        comuna,
+      }
+    ]);
+
+  if (error) console.error("❌ Error guardando cliente nuevo:", error);
 }
 
-/* ============================================
-   GUARDAR PEDIDO TEMPORAL
-============================================ */
-async function guardarPedidoTemporal(phone, pedidoArray) {
-  const { error } = await supabase.from("pedidos").upsert({
-    telefono: phone,
-    pedido: pedidoArray,
-    actualizado_en: new Date().toISOString()
-  });
-
-  if (error) console.log("❌ Error guardando pedido temporal:", error);
-}
-
-/* ============================================
-   GUARDAR PEDIDO COMPLETO
-============================================ */
+/* ===========================================================
+   🟢 GUARDAR PEDIDO FINAL (pedidos)
+   =========================================================== */
 async function guardarPedidoCompleto(state) {
-  const { error } = await supabase.from("pedidos_completos").insert({
-    telefono: state.phone,
-    pedido: state.pedido,
-    nombre: state.datos.nombre,
-    direccion: state.datos.direccion,
-    telefono2: state.datos.telefono2,
-    comuna: state.comuna,
-    fecha_entrega: state.fechaEntrega,
-    horario: state.horarioEntrega,
-    creado_en: new Date().toISOString()
-  });
+  const { error } = await supabase
+    .from("pedidos")
+    .insert([
+      {
+        telefono: state.phone,
+        pedido: state.pedido,
+        nombre: state.datos.nombre,
+        direccion: state.datos.direccion,
+        telefono2: state.datos.telefono2 || null,
+        comuna: state.comuna,
+        fecha_entrega: state.fechaEntrega,
+        horario: state.horarioEntrega
+      }
+    ]);
 
-  if (error) console.log("❌ Error guardando pedido completo:", error);
+  if (error) console.error("❌ Error guardando pedido final:", error);
 }
 
 module.exports = {
-  guardarClienteNuevo,
-  guardarHistorial,
   guardarPedidoTemporal,
+  guardarClienteNuevo,
   guardarPedidoCompleto
 };
