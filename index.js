@@ -1,83 +1,69 @@
-// ================================================
-//  LUNA BOT - INDEX.JS FINAL Y ESTABLE
-// ================================================
-
 require("dotenv").config();
 const express = require("express");
 const app = express();
-const cors = require("cors");
 
 const { iniciarFlujo, procesarPaso } = require("./flow");
 const { guardarHistorial } = require("./dbSave");
 
-// ================================================
-//  1. CONFIGURACIÓN EXPRESS (OBLIGATORIA PARA WHATSauto)
-// ================================================
-app.use(cors());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // <-- NECESARIO PARA WHATSAUTO
 
-// ================================================
-//  2. MEMORIA TEMPORAL EN RAM
-// ================================================
-const sesiones = {}; // { telefono: {state} }
+// Sesiones en memoria
+const sesiones = {};
 
-// ================================================
-//  3. RUTA PRINCIPAL DEL WEBHOOK
-// ================================================
-app.post("/whatsapp", async (req, res) => {
+function decodificarBody(rawBody) {
   try {
-    // WhatsAuto envía FORM-URLENCODED → req.body funciona con urlencoded
-    console.log("🟣 BODY DECODIFICADO:", req.body);
-
-    const { phone, message } = req.body;
-
-    // Validación mínima
-    if (!phone || !message) {
-      console.log("❌ ERROR: Falta phone o message en el payload.");
-      return res.json({ reply: "No entendí el mensaje 😅" });
+    const params = new URLSearchParams(rawBody);
+    const obj = {};
+    for (const [key, value] of params.entries()) {
+      obj[key] = decodeURIComponent(value.replace(/\+/g, " "));
     }
-
-    // Guardar historial (no detiene flujo si falla)
-    try {
-      await guardarHistorial(phone, message, "cliente");
-    } catch (e) {
-      console.log("❌ Error guardando historial:", e);
-    }
-
-    // Recuperar o crear nueva sesión
-    if (!sesiones[phone]) {
-      sesiones[phone] = iniciarFlujo({}, phone);
-      console.log("🆕 Nueva sesión creada:", phone);
-    }
-
-    const state = sesiones[phone];
-
-    // Procesar mensaje
-    const respuesta = await procesarPaso(state, message);
-
-    // Guardar historial del bot
-    try {
-      await guardarHistorial(phone, respuesta, "bot");
-    } catch (e) {
-      console.log("❌ Error guardando historial:", e);
-    }
-
-    // Responder a WhatsAuto
-    return res.json({ reply: respuesta });
-
-  } catch (error) {
-    console.log("❌ ERROR EN /whatsapp:", error);
-    return res.json({
-      reply: "Lo siento 😔 ocurrió un error inesperado. Intenta nuevamente."
-    });
+    return obj;
+  } catch (e) {
+    return null;
   }
+}
+
+app.post("/whatsapp", async (req, res) => {
+  let body = req.body;
+
+  // Cuando WhatsAuto NO envía JSON
+  if (!body || Object.keys(body).length === 0) {
+    const raw = req.rawBody?.toString();
+    if (raw) body = decodificarBody(raw);
+  }
+
+  if (!body) {
+    console.log("❌ ERROR: No se pudo interpretar el body");
+    return res.json({ reply: "Hubo un error procesando tu mensaje." });
+  }
+
+  const phone = body.phone;
+  const message = body.message || "";
+
+  if (!phone) {
+    console.log("❌ ERROR: WhatsAuto no envió PHONE.");
+    return res.json({ reply: "Hubo un error." });
+  }
+
+  // Guardar historial
+  await guardarHistorial(phone, message, "cliente");
+
+  // Crear sesión si no existe
+  if (!sesiones[phone]) {
+    sesiones[phone] = iniciarFlujo({}, phone);
+  }
+
+  const state = sesiones[phone];
+
+  // Procesar mensaje
+  const respuesta = await procesarPaso(state, message);
+
+  // Guardar historial respuesta bot
+  await guardarHistorial(phone, respuesta, "bot");
+
+  res.json({ reply: respuesta });
 });
 
-// ================================================
-//  4. PUERTO PARA RENDER
-// ================================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Servidor iniciado en el puerto ${PORT}`));
