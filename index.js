@@ -7,7 +7,6 @@
 // 1. DEPENDENCIAS BÁSICAS
 // =======================
 import express from "express";
-import cors from "cors";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
 import OpenAI from "openai";
@@ -15,13 +14,9 @@ import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
 
-// =======================
-// 2. CONFIGURACIONES BASE
-// =======================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
 app.use(bodyParser.json());
 
 // ---------- OpenAI ----------
@@ -194,105 +189,45 @@ FLUJO OBLIGATORIO DEL BOT (LUNA):
 1. En el momento que se reciba cualquier mensaje se da la bienvenida.
 2. Se valida el número de WhatsApp en la base de datos clientes:
    - Si está en la base de datos clientes se omite el paso 3 y el paso 5.
-   - Si NO está en la base de datos clientes se envía el catálogo y se pregunta para qué comuna será despachado el pedido.
-3. Se valida la comuna:
-   - Si la comuna está dentro de las comunas con reparto:
-     - Informar el horario aproximado de entrega.
-     - Informar que NO hay compra mínima.
-     - Informar que el despacho es GRATUITO por compras mayores a $14.990.
-     - Si la compra es menor, el despacho sale en $2.400.
-   - Si NO tenemos reparto en la comuna:
-     - Ofrecer entrega en el domicilio Calle Chacabuco 1120, Santiago Centro.
-     - Si la persona acepta, se sigue al paso 4.
-     - Si no acepta, se despide amablemente.
-4. Preguntar por los productos, sabores, cantidades y porciones que el cliente desea, teniendo en cuenta SOLO los productos del catálogo.
-5. Luego de identificar que el cliente pidió todo lo que desea:
-   - Preguntar los datos para el despacho UNO POR UNO:
-     a) Nombre y apellido del cliente.
-     b) Dirección.
-     c) Teléfono adicional (si no se tiene, se usa el mismo de WhatsApp).
-6. Al identificar que el pedido está completo y verificar que los datos de despacho están correctos:
-   - Enviar al cliente un resumen de lo que pidió.
-   - Incluir datos de despacho, fecha de entrega y hora aproximada.
-   - Pedir que confirme.
-7. Al realizar la confirmación:
-   - Guardar toda la información en las tablas correspondientes.
-   - Enviar un mensaje al cliente indicando que el pedido quedó agendado.
-   - Al final de la conversación se envía un emoji de check verde (✅).
+   - Si no está en la base de datos clientes se envía el catálogo y se pregunta para que comuna será despachado el pedido.
+3. Se valida la comuna que este dentro de las comunas con reparto:
+   - Si está se informa el horario aproximado de entrega.
+   - Se le informa que no hay compra mínima.
+   - Que el despacho es gratuito por compras mayores a $14.990.
+   - Si la compra es menor el despacho sale en $2.400.
+   - Si NO tenemos reparto se ofrece entrega en Calle Chacabuco 1120, Santiago Centro.
+     - Si acepta → paso 4.
+     - Si no acepta → despedir amablemente.
+4. Preguntar productos, sabores, cantidades, porciones SOLO del catálogo.
+5. Al finalizar el pedido → solicitar datos de despacho uno por uno:
+   - Nombre y apellido
+   - Dirección
+   - Teléfono adicional
+6. Cuando el pedido esté completo → enviar resumen + datos despacho + fecha + horario.
+7. Si el cliente confirma → guardar en BD y enviar emoji de check verde (✅).
 
-REGLAS ADICIONALES PARA LA IA:
-- Responde SIEMPRE en español, con tono amable y cercano.
-- Respuestas CORTAS y CONCISAS (máximo 2 frases).
-- Puedes responder preguntas libres del cliente en cualquier momento, pero luego vuelve a encaminar la conversación hacia el flujo de venta.
-- NO inventes productos, precios, comunas ni reglas que no estén en el texto de catálogo y reglas.
-- Si te preguntan algo fuera del contexto de catálogo, comunas o despachos, responde brevemente que solo puedes ayudar con información de pedidos, catálogo y despachos.
-- Nunca ofrezcas métodos de pago distintos a efectivo o débito.
-- Siempre que sea el primer mensaje del cliente en la conversación, DA LA BIENVENIDA.
+Respuestas siempre cortas y concisas.
 `;
 
 // =====================================================
-// 6. HELPERS PARA FECHA DE ENTREGA Y TABLAS
+// 6. HELPER PARA FECHA DE ENTREGA
 // =====================================================
-
 function calcularFechaEntrega() {
   const hoy = new Date();
-  // Convertir a zona horaria Chile/Colombia según servidor (simplificado)
-  let diaSemana = hoy.getDay(); // 0 domingo, 6 sábado
-
-  // Regla: entregas al día siguiente, excepto domingos (los pedidos de sábado y domingo se entregan lunes)
   let entrega = new Date(hoy);
   entrega.setDate(entrega.getDate() + 1);
-
-  const mañanaDia = entrega.getDay();
-
-  // Si día de entrega cae domingo, mover a lunes
-  if (mañanaDia === 0) {
-    entrega.setDate(entrega.getDate() + 1);
-  }
-
-  return entrega.toISOString().split("T")[0]; // YYYY-MM-DD
+  if (entrega.getDay() === 0) entrega.setDate(entrega.getDate() + 1);
+  return entrega.toISOString().split("T")[0];
 }
 
-// NOTA IMPORTANTE: Debes crear las siguientes tablas en Supabase:
-//
-// Tabla: clientes
-// - id (uuid) PK default uuid_generate_v4()
-// - telefono (text) UNIQUE
-// - nombre (text)
-// - direccion (text)
-// - comuna (text)
-// - telefono_alt (text)
-//
-// Tabla: pedidos
-// - id (uuid) PK default uuid_generate_v4()
-// - cliente_telefono (text) (FK lógica a clientes.telefono)
-// - comuna (text)
-// - fecha_entrega (date)
-// - horario_aprox (text)
-// - resumen_texto (text)
-// - total_estimado (numeric, nullable)
-// - estado (text) (ej: 'pendiente')
-//
-// Tabla: pedidos_detalle
-// - id (uuid) PK
-// - pedido_id (uuid) FK a pedidos.id
-// - descripcion (text)
-// - cantidad (integer)
-// - categoria (text)
-// - precio_unitario (numeric, nullable)
-
 // =====================================================
-// 7. LLAMADO A GPT-4O-MINI CON SALIDA ESTRUCTURADA
+// 7. LLAMADO A GPT-4O-MINI
 // =====================================================
-
 async function askLunaAI({ session, userMessage }) {
-  const knownClientFlag = session.knownClient ? "sí" : "no";
-
-  // Contexto que verá la IA
-  const contextoJSON = {
+  const contexto = {
     estado_sesion: session.state,
     telefono: session.phone,
-    cliente_conocido: knownClientFlag,
+    cliente_conocido: session.knownClient,
     comuna_actual: session.comuna,
     carrito_actual: session.cart,
     datos_cliente: session.customer,
@@ -301,61 +236,41 @@ async function askLunaAI({ session, userMessage }) {
 
   const systemMessage = `
 Eres Luna, asistente virtual de Delicias Monte Luna. 
-Eres un BOT de ventas por WhatsApp que SIGUE ESTRICTAMENTE las reglas del flujo y el texto de catálogo proporcionado.
+Debes seguir estrictamente el flujo siguiente:
 
 ${FLOW_RULES_TEXT}
 
-A continuación tienes el texto completo de catálogo, comunas y reglas. NO LO RESUMAS, NO LO MODIFIQUES, solo úsalo como referencia para responder:
+Usa este catálogo y reglas SIN modificar nada:
 
 ${RULES_TEXT}
 
-INSTRUCCIONES DE FORMATO DE RESPUESTA:
-Debes responder SIEMPRE en formato JSON VÁLIDO, sin texto adicional, con la siguiente forma:
-
+Formato ESTRICTO de respuesta JSON:
 {
-  "reply": "texto corto de respuesta al cliente",
-  "state": "inicio | preguntar_comuna | pedidos | datos_despacho | confirmacion | finalizado",
+  "reply": "texto corto",
+  "state": "",
   "data": {
-    "comuna": "nombre de la comuna o null",
-    "productos": [
-      {
-        "descripcion": "texto libre del producto y sabor",
-        "cantidad": 1,
-        "categoria": "queques peruanos | galletas | muffins | delicias premium | queque artesanal rectangular | otro"
-      }
-    ],
+    "comuna": "",
+    "productos": [],
     "datos_cliente": {
-      "nombre": "Nombre y apellido o null",
-      "direccion": "Dirección completa o null",
-      "telefono_alt": "Teléfono alternativo o null"
+      "nombre": "",
+      "direccion": "",
+      "telefono_alt": ""
     },
-    "pedido_completo": true o false,
-    "confirmado": true o false,
-    "horario_entrega": "franja de horario aproximado o null",
-    "fecha_entrega": "YYYY-MM-DD o null"
+    "pedido_completo": false,
+    "confirmado": false,
+    "horario_entrega": "",
+    "fecha_entrega": ""
   }
 }
-
-REGLAS DEL JSON:
-- "reply" debe ser una o dos frases, amables y claras.
-- Si no estás seguro de algún campo, usa null o deja valores vacíos.
-- Si el cliente confirma el pedido, "confirmado": true.
-- Si crees que ya pidió todo, "pedido_completo": true y pasa a estado "confirmacion".
-- Si ya se confirmó todo, usa estado "finalizado".
-- Usa siempre comillas dobles en claves y textos (JSON válido).
 `;
 
   const messages = [
     { role: "system", content: systemMessage },
-    // Historial resumido
-    ...session.history.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })),
+    ...session.history.map((m) => ({ role: m.role, content: m.content })),
     {
       role: "user",
-      content: `Mensaje del cliente: "${userMessage}".\n\nContexto de la sesión:\n${JSON.stringify(
-        contextoJSON
+      content: `Mensaje del cliente: "${userMessage}". Contexto: ${JSON.stringify(
+        contexto
       )}`,
     },
   ];
@@ -366,50 +281,40 @@ REGLAS DEL JSON:
     temperature: 0.2,
   });
 
-  const content = completion.choices[0]?.message?.content || "";
-  return content;
+  return completion.choices[0]?.message?.content || "";
 }
 
 // =====================================================
-// 8. GUARDAR CLIENTE Y PEDIDO EN SUPABASE
+// 8. GUARDADO CLIENTE
 // =====================================================
-
 async function upsertClienteFromSession(session) {
   const { phone, customer, comuna } = session;
-  if (!phone) return;
-
   const { nombre, direccion, telefono_alt } = customer || {};
 
-  const { data, error } = await supabase
-    .from("clientes")
-    .upsert(
-      {
-        telefono: phone,
-        nombre: nombre || null,
-        direccion: direccion || null,
-        comuna: comuna || null,
-        telefono_alt: telefono_alt || null,
-      },
-      { onConflict: "telefono" }
-    )
-    .select()
-    .single();
-
-  if (error) {
-    console.error("❌ Error upsert cliente:", error);
-  } else {
-    console.log("✅ Cliente registrado/actualizado:", data?.telefono);
-  }
+  await supabase.from("clientes").upsert(
+    {
+      telefono: phone,
+      nombre: nombre || null,
+      direccion: direccion || null,
+      comuna: comuna || null,
+      telefono_alt: telefono_alt || null,
+    },
+    { onConflict: "telefono" }
+  );
 }
 
+// =====================================================
+// 9. GUARDAR PEDIDO Y DETALLES
+// =====================================================
 async function guardarPedidoCompleto(session, resumenTexto, dataAI) {
   try {
     const fecha_entrega =
       dataAI?.fecha_entrega || session.delivery.fecha_entrega || calcularFechaEntrega();
+
     const horario_entrega =
       dataAI?.horario_entrega || session.delivery.horario_aprox || null;
 
-    const { data: pedido, error: errorPedido } = await supabase
+    const { data: pedido } = await supabase
       .from("pedidos")
       .insert({
         cliente_telefono: session.phone,
@@ -423,14 +328,7 @@ async function guardarPedidoCompleto(session, resumenTexto, dataAI) {
       .select()
       .single();
 
-    if (errorPedido) {
-      console.error("❌ Error insert pedido:", errorPedido);
-      return;
-    }
-
-    console.log("✅ Pedido creado:", pedido.id);
-
-    if (Array.isArray(session.cart)) {
+    if (pedido && Array.isArray(session.cart)) {
       const detalles = session.cart.map((item) => ({
         pedido_id: pedido.id,
         descripcion: item.descripcion || "",
@@ -439,174 +337,109 @@ async function guardarPedidoCompleto(session, resumenTexto, dataAI) {
         precio_unitario: null,
       }));
 
-      if (detalles.length > 0) {
-        const { error: errorDetalle } = await supabase
-          .from("pedidos_detalle")
-          .insert(detalles);
-
-        if (errorDetalle) {
-          console.error("❌ Error insert pedidos_detalle:", errorDetalle);
-        } else {
-          console.log("✅ Detalle de pedido guardado.");
-        }
-      }
+      await supabase.from("pedidos_detalle").insert(detalles);
     }
   } catch (err) {
-    console.error("❌ Error inesperado guardando pedido:", err);
+    console.error("❌ Error guardando pedido:", err);
   }
 }
 
 // =====================================================
-// 9. ENDPOINT PRINCIPAL PARA WHATSAUTO
+// 10. ENDPOINT PRINCIPAL WHATSAUTO
 // =====================================================
-
 app.post("/whatsapp", async (req, res) => {
   console.log("📩 [WEBHOOK] Payload recibido:", req.body);
-
-  // WhatsAuto normalmente envía:
-  // {
-  //   "app": "WhatsAuto",
-  //   "sender": "Nombre",
-  //   "phone": "+56912345678",
-  //   "message": "Hola",
-  //   "type": "text",
-  //   "mediaUrl": null
-  // }
 
   const { phone, message } = req.body || {};
 
   if (!phone || !message) {
-    console.warn("⚠️ Payload incompleto, faltan phone o message");
     return res.json({
       reply:
-        "Hola, soy Luna de Delicias Monte Luna. No pude leer bien tu mensaje, ¿puedes escribirlo de nuevo por favor? 😊",
+        "Hola, soy Luna de Delicias Monte Luna. No pude leer tu mensaje, ¿puedes repetirlo por favor? 😊",
     });
   }
 
   const session = getSession(phone);
 
-  // 1) Cargar datos del cliente la primera vez (solo una vez por sesión)
+  // Buscar cliente solo 1 vez
   if (!session.checkedClient) {
-    try {
-      const { data: cliente, error } = await supabase
-        .from("clientes")
-        .select("*")
-        .eq("telefono", phone)
-        .maybeSingle();
+    const { data: cliente } = await supabase
+      .from("clientes")
+      .select("*")
+      .eq("telefono", phone)
+      .maybeSingle();
 
-      if (error) {
-        console.error("❌ Error buscando cliente:", error);
-      }
-
-      if (cliente) {
-        session.knownClient = true;
-        session.customer.nombre = cliente.nombre;
-        session.customer.direccion = cliente.direccion;
-        session.customer.telefono_alt = cliente.telefono_alt;
-        session.comuna = cliente.comuna;
-        console.log("✅ Cliente encontrado en BD:", phone);
-      } else {
-        console.log("ℹ️ Cliente no existe aún en BD:", phone);
-      }
-
-      session.checkedClient = true;
-    } catch (err) {
-      console.error("❌ Error inesperado consultando cliente:", err);
+    if (cliente) {
+      session.knownClient = true;
+      session.customer.nombre = cliente.nombre;
+      session.customer.direccion = cliente.direccion;
+      session.customer.telefono_alt = cliente.telefono_alt;
+      session.comuna = cliente.comuna;
     }
+
+    session.checkedClient = true;
   }
 
   pushHistory(session, "user", message);
 
-  let aiRawResponse;
+  let aiRaw = "";
   try {
-    aiRawResponse = await askLunaAI({ session, userMessage: message });
-    console.log("🤖 Respuesta cruda de IA:", aiRawResponse);
+    aiRaw = await askLunaAI({ session, userMessage: message });
   } catch (err) {
-    console.error("❌ Error llamando a OpenAI:", err);
-    return res.json({
-      reply:
-        "Lo siento, estoy con un pequeño problema técnico. ¿Podrías intentar de nuevo en un momento por favor? 🙏",
-    });
+    console.error("❌ Error IA:", err);
+    return res.json({ reply: "Hubo un pequeño error, intenta nuevamente 🙏" });
   }
 
   let ai;
   try {
-    ai = JSON.parse(aiRawResponse);
+    ai = JSON.parse(aiRaw);
   } catch (err) {
-    console.error("⚠️ No se pudo parsear JSON de la IA, se responde texto directo.");
-    const fallbackReply =
-      aiRawResponse ||
-      "Disculpa, tuve un problema procesando tu mensaje. ¿Puedes repetirlo de forma más simple, por favor? 😊";
-    pushHistory(session, "assistant", fallbackReply);
-    return res.json({ reply: fallbackReply });
+    console.error("⚠️ JSON inválido:", aiRaw);
+    return res.json({
+      reply: "No entendí bien, ¿puedes repetirlo por favor? 😊",
+    });
   }
 
-  const replyText = ai.reply || "Listo, Luna te está ayudando con tu pedido. 😊";
+  const replyText = ai.reply || "Listo 😊";
   const nextState = ai.state || session.state;
   const data = ai.data || {};
 
-  // Actualizar sesión con la info entregada por la IA
   session.state = nextState;
 
-  if (data.comuna) {
-    session.comuna = data.comuna;
-  }
+  if (data.comuna) session.comuna = data.comuna;
+  if (Array.isArray(data.productos)) session.cart = data.productos;
+  if (data.datos_cliente)
+    session.customer = { ...session.customer, ...data.datos_cliente };
+  if (data.fecha_entrega) session.delivery.fecha_entrega = data.fecha_entrega;
+  if (data.horario_entrega) session.delivery.horario_aprox = data.horario_entrega;
 
-  if (Array.isArray(data.productos)) {
-    // Mantenemos un carrito simple (podrías mejorar lógica de merge si quieres)
-    session.cart = data.productos;
-  }
+  const pedidoCompleto = data.pedido_completo || false;
+  const confirmado = data.confirmado || false;
 
-  if (data.datos_cliente) {
-    session.customer = {
-      ...session.customer,
-      ...data.datos_cliente,
-    };
-  }
-
-  if (data.fecha_entrega) {
-    session.delivery.fecha_entrega = data.fecha_entrega;
-  }
-
-  if (data.horario_entrega) {
-    session.delivery.horario_aprox = data.horario_entrega;
-  }
-
-  const pedidoCompleto = !!data.pedido_completo;
-  const confirmado = !!data.confirmado;
-
-  // Si el pedido está confirmado y aún no se ha guardado -> guardar en Supabase
   if (confirmado && !session.orderSaved) {
-    // Registrar/actualizar cliente
     await upsertClienteFromSession(session);
 
-    // Crear resumen textual (puede ser el mismo reply o un texto corto)
-    const resumenTexto =
-      `Resumen de pedido para ${session.phone}: ` +
-      (session.cart || [])
-        .map((p) => `${p.cantidad || 1} x ${p.descripcion || "producto"}`)
-        .join(", ");
+    const resumen =
+      session.cart.map((p) => `${p.cantidad || 1} x ${p.descripcion}`).join(", ");
 
-    await guardarPedidoCompleto(session, resumenTexto, data);
+    await guardarPedidoCompleto(session, resumen, data);
+
     session.orderSaved = true;
     session.state = "finalizado";
   }
 
   pushHistory(session, "assistant", replyText);
 
-  // RESPUESTA PARA WHATSAUTO
-  // WhatsAuto espera algo como:
-  // { "reply": "Texto que se enviará por WhatsApp" }
   return res.json({ reply: replyText });
 });
 
 // =======================
-// 10. SERVIDOR HTTP
+// 11. SERVIDOR HTTP
 // =======================
 app.get("/", (req, res) => {
-  res.send("Luna Bot - Delicias Monte Luna está funcionando ✅");
+  res.send("Luna Bot - Delicias Monte Luna está funcionando SIN CORS ✅");
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Luna Bot escuchando en el puerto ${PORT}`);
+  console.log(`🚀 Luna Bot escuchando SIN CORS en el puerto ${PORT}`);
 });
