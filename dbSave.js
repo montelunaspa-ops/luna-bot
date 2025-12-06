@@ -1,5 +1,8 @@
 const supabase = require("./supabase");
 
+/* ============================================
+   GUARDAR CLIENTE NUEVO
+============================================ */
 async function guardarClienteNuevo(phone, nombre, direccion, telefono2, comuna) {
   const { error } = await supabase.from("clientes_detallados").insert({
     telefono: phone,
@@ -13,25 +16,38 @@ async function guardarClienteNuevo(phone, nombre, direccion, telefono2, comuna) 
   if (error) console.log("❌ Error guardando cliente:", error);
 }
 
+/* ============================================
+   GUARDAR HISTORIAL
+============================================ */
 async function guardarHistorial(phone, mensaje, tipo = "cliente") {
-  await supabase.from("historial").insert({
+  const { error } = await supabase.from("historial").insert({
     telefono: phone,
     mensaje,
-    tipo,
+    tipo, // "cliente" | "bot"
     fecha: new Date().toISOString()
   });
+
+  if (error) console.log("❌ Error guardando historial:", error);
 }
 
+/* ============================================
+   GUARDAR PEDIDO TEMPORAL
+============================================ */
 async function guardarPedidoTemporal(phone, pedidoArray) {
-  await supabase.from("pedidos").upsert({
+  const { error } = await supabase.from("pedidos").upsert({
     telefono: phone,
     pedido: pedidoArray,
     actualizado_en: new Date().toISOString()
   });
+
+  if (error) console.log("❌ Error guardando pedido temporal:", error);
 }
 
+/* ============================================
+   GUARDAR PEDIDO COMPLETO
+============================================ */
 async function guardarPedidoCompleto(state) {
-  await supabase.from("pedidos_completos").insert({
+  const { error } = await supabase.from("pedidos_completos").insert({
     telefono: state.phone,
     pedido: state.pedido,
     nombre: state.datos.nombre,
@@ -42,11 +58,13 @@ async function guardarPedidoCompleto(state) {
     horario: state.horarioEntrega,
     creado_en: new Date().toISOString()
   });
+
+  if (error) console.log("❌ Error guardando pedido completo:", error);
 }
 
 module.exports = {
   guardarClienteNuevo,
   guardarHistorial,
   guardarPedidoTemporal,
- guardarPedidoCompleto
+  guardarPedidoCompleto
 };
