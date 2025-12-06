@@ -6,47 +6,52 @@ const {
   respuestaEmocional
 } = require("./gpt");
 const { comunaValida } = require("./utils");
-
 const {
   guardarPedidoTemporal,
   guardarPedidoCompleto,
-  guardarClienteNuevo,
+  guardarClienteNuevo
 } = require("./dbSave");
 
-/* ===========================================================
-   ESTADO INICIAL
-=========================================================== */
-function nuevoEstado(phone) {
+// ===========================================================
+// 🟢 Crear estado inicial del flujo
+// ===========================================================
+function iniciarFlujo(state = {}, phone) {
   return {
     phone,
     step: "inicio",
+    clienteNuevo: false,
+    entrega: "domicilio",
     comuna: null,
     pedido: [],
     datos: { nombre: "", direccion: "", telefono2: "" },
-    fechaEntrega: "",
     horarioEntrega: "",
-    entrega: "domicilio",
-    clienteNuevo: false
+    fechaEntrega: "",
+    ...state
   };
 }
 
-/* ===========================================================
-   FECHA ENTREGA (al día siguiente excepto domingo)
-=========================================================== */
+// ===========================================================
+// 🟢 Calcular fecha entrega (día siguiente)
+// ===========================================================
 function calcularFechaEntrega() {
   const hoy = new Date();
-  let fecha = new Date(hoy);
-  fecha.setDate(hoy.getDate() + 1);
+  const manana = new Date(hoy);
+  manana.setDate(hoy.getDate() + 1);
 
-  const dia = fecha.getDay(); 
-  if (dia === 0) fecha.setDate(fecha.getDate() + 1); 
+  const dia = hoy.getDay(); // 0 domingo, 6 sábado
 
-  return fecha.toISOString().split("T")[0];
+  if (dia === 6) {
+    manana.setDate(hoy.getDate() + 2);
+  } else if (dia === 0) {
+    manana.setDate(hoy.getDate() + 1);
+  }
+
+  return manana.toISOString().split("T")[0];
 }
 
-/* ===========================================================
-   PREGUNTA AUTOMÁTICA SEGÚN PASO
-=========================================================== */
+// ===========================================================
+// 🟢 Pregunta según paso
+// ===========================================================
 function preguntaSegunPaso(step) {
   switch (step) {
     case "solicitar_comuna":
@@ -58,43 +63,55 @@ function preguntaSegunPaso(step) {
     case "solicitar_direccion":
       return "¿Cuál es la dirección exacta para el despacho?";
     case "solicitar_telefono2":
-      return "¿Tienes algún teléfono adicional? (si no, escribe *no*)";
+      return "¿Tienes algún teléfono adicional? Si no, escribe *no*.";
     case "confirmar":
-      return "¿Deseas confirmar el pedido? Escribe *sí* para confirmar.";
+      return "¿Confirmas el pedido? Escribe *sí* para confirmar.";
     default:
       return "¿En qué puedo ayudarte?";
   }
 }
 
-/* ===========================================================
-   PROCESAR MENSAJE
-=========================================================== */
+// ===========================================================
+// 🟢 Procesar cada mensaje
+// ===========================================================
 async function procesarPaso(state, mensaje) {
   const info = await interpretarMensaje(mensaje);
   const emocion = respuestaEmocional(info.emocion);
   const texto = info.texto_normalizado || mensaje;
 
-  /* === 1) Preguntas con reglas === */
+  // ---------------------------------------------------------
+  // 🔵 Preguntas → responder con rules + GPT
+  // ---------------------------------------------------------
   if (info.intencion === "pregunta") {
-    const resp = await responderConocimiento(texto);
+    const resp = await responderConocimiento(info.pregunta || texto);
     return `${emocion} ${resp}\n\n${preguntaSegunPaso(state.step)}`;
   }
 
-  /* === 2) Saludo inicial === */
-  if (state.step === "inicio" && info.intencion === "saludo") {
+  // ---------------------------------------------------------
+  // 🔵 Saludo
+  // ---------------------------------------------------------
+  if (
+    info.intencion === "saludo" &&
+    (state.step === "inicio" || state.step === "solicitar_comuna")
+  ) {
     state.step = "solicitar_comuna";
-    return `${emocion} ${rules.bienvenida}\n\n${rules.catalogo}\n¿En qué comuna será el despacho?`;
+    return (
+      `${emocion} ${rules.bienvenida}\n\n` +
+      `${rules.catalogo}\n¿En qué comuna será el despacho?`
+    );
   }
 
-  /* === 3) SOLICITAR COMUNA === */
+  // ---------------------------------------------------------
+  // 🟣 Paso: solicitar comuna
+  // ---------------------------------------------------------
   if (state.step === "solicitar_comuna") {
-    let comuna = comunaValida(texto);
+    let comunaCliente = comunaValida(info.comuna || texto);
 
-    if (!comuna) {
+    if (!comunaCliente) {
       const comunaChile = await validarComunaChile(texto);
 
       if (!comunaChile || comunaChile === "NO") {
-        return `${emocion} No pude reconocer la comuna 😅\nPor favor indícame nuevamente la comuna.`;
+        return `${emocion} No logré reconocer esa comuna 😅\nPor favor indícame nuevamente la comuna.`;
       }
 
       if (!rules.comunasCobertura.includes(comunaChile)) {
@@ -102,21 +119,31 @@ async function procesarPaso(state, mensaje) {
         state.comuna = comunaChile;
         state.step = "tomar_pedido";
 
-        return `${emocion} No tenemos reparto en *${comunaChile}* 😔 pero puedes retirar tu pedido en *Santiago Centro*.\n¿Qué productos deseas pedir?`;
+        return (
+          `${emocion} No tenemos despacho en *${comunaChile}* 😔\n` +
+          `Puedes retirar en *Calle Chacabuco 1120, Santiago Centro*.\n` +
+          "¿Qué productos deseas pedir?"
+        );
       }
 
-      comuna = comunaChile;
+      comunaCliente = comunaChile;
     }
 
-    state.comuna = comuna;
-    state.horarioEntrega = "Durante la mañana"; 
+    state.comuna = comunaCliente;
+    state.horarioEntrega = rules.horarios[comunaCliente];
     state.entrega = "domicilio";
     state.step = "tomar_pedido";
 
-    return `${emocion} Perfecto 😊 hacemos despacho en *${comuna}*.\n¿Qué productos deseas pedir?`;
+    return (
+      `${emocion} Perfecto 😊 hacemos despacho en *${comunaCliente}*.\n` +
+      `Horario aproximado: *${state.horarioEntrega}*.\n` +
+      "¿Qué productos deseas pedir?"
+    );
   }
 
-  /* === 4) TOMAR PEDIDO === */
+  // ---------------------------------------------------------
+  // 🟠 Paso: tomar pedido
+  // ---------------------------------------------------------
   if (state.step === "tomar_pedido") {
     const lower = texto.toLowerCase();
 
@@ -127,86 +154,110 @@ async function procesarPaso(state, mensaje) {
       lower === "listo"
     ) {
       if (state.pedido.length === 0) {
-        return `${emocion} No anoté ningún producto 😅 ¿qué deseas pedir?`;
+        return `${emocion} Aún no tengo productos anotados 😅\n¿Qué deseas pedir?`;
       }
-
       state.step = "solicitar_nombre";
       return `${emocion} Perfecto 😊 ¿Cuál es tu nombre y apellido?`;
     }
 
-    state.pedido.push(texto);
+    if (info.intencion === "pedido" && info.pedido) {
+      state.pedido.push(info.pedido);
+    } else {
+      state.pedido.push(texto);
+    }
+
     await guardarPedidoTemporal(state.phone, state.pedido);
 
-    return `${emocion} Anotado 😊\nSi deseas agregar algo más, escríbelo.\nSi ya terminaste, escribe *nada más*.`;
+    return `${emocion} Anotado 😊\n¿Algo más? Si no, escribe *nada más*.`;
   }
 
-  /* === 5) NOMBRE === */
+  // ---------------------------------------------------------
+  // 🟡 Solicitar nombre
+  // ---------------------------------------------------------
   if (state.step === "solicitar_nombre") {
     state.datos.nombre = mensaje;
     state.step = "solicitar_direccion";
-    return `${emocion} ¿Cuál es la dirección exacta para el despacho?`;
+    return `${emocion} Gracias 😊 ¿Cuál es la dirección exacta?`;
   }
 
-  /* === 6) DIRECCIÓN === */
+  // ---------------------------------------------------------
+  // 🟡 Solicitar dirección
+  // ---------------------------------------------------------
   if (state.step === "solicitar_direccion") {
     state.datos.direccion = mensaje;
     state.step = "solicitar_telefono2";
-    return `${emocion} ¿Tienes algún teléfono adicional? (si no, escribe *no*)`;
+    return `${emocion} Perfecto 🙌 ¿Tienes un teléfono adicional? Si no, escribe *no*.`;
   }
 
-  /* === 7) TELÉFONO 2 === */
+  // ---------------------------------------------------------
+  // 🟡 Teléfono adicional
+  // ---------------------------------------------------------
   if (state.step === "solicitar_telefono2") {
-    const low = texto.toLowerCase();
-    state.datos.telefono2 = (low === "no") ? "" : mensaje;
+    const lower = texto.toLowerCase();
+
+    state.datos.telefono2 = lower === "no" ? "" : mensaje;
 
     state.fechaEntrega = calcularFechaEntrega();
     state.step = "confirmar";
 
-    const resumen = `
-Resumen del pedido 📦
-${state.pedido.map(p => "- " + p).join("\n")}
+    const textoEntrega =
+      state.entrega === "domicilio"
+        ? `Despacho en *${state.comuna}* el día *${state.fechaEntrega}* entre *${state.horarioEntrega}*.`
+        : `Retiro en *Calle Chacabuco 1120* el día *${state.fechaEntrega}*.`;
+
+    const resumen = `Resumen del pedido 📦
+${state.pedido.map((p) => "- " + p).join("\n")}
 
 Datos del cliente 🧾
 • Nombre: ${state.datos.nombre}
 • Dirección: ${state.datos.direccion}
-• Teléfono: ${state.phone}${state.datos.telefono2 ? " / " + state.datos.telefono2 : ""}
+• Teléfonos: ${state.phone}${state.datos.telefono2 ? " / " + state.datos.telefono2 : ""}
 • Comuna: ${state.comuna}
 
-Entrega estimada: *${state.fechaEntrega}*
-`;
+${textoEntrega}
 
-    return `${emocion} ${resumen}\n¿Deseas confirmar el pedido?`;
+Si está todo correcto, escribe *sí* para confirmar.`;
+
+    return `${emocion} ${resumen}`;
   }
 
-  /* === 8) CONFIRMAR === */
+  // ---------------------------------------------------------
+  // 🟢 Confirmación
+  // ---------------------------------------------------------
   if (state.step === "confirmar") {
-    const ok = texto.toLowerCase();
+    const lower = texto.toLowerCase();
 
-    if (ok.startsWith("si") || ok.includes("confirmo")) {
-      await guardarClienteNuevo(
-        state.phone,
-        state.datos.nombre,
-        state.datos.direccion,
-        state.datos.telefono2,
-        state.comuna
-      );
+    if (lower.startsWith("si") || lower.includes("confirmo")) {
+      if (state.clienteNuevo) {
+        await guardarClienteNuevo(
+          state.phone,
+          state.datos.nombre,
+          state.datos.direccion,
+          state.datos.telefono2 || state.phone,
+          state.comuna
+        );
+      }
 
       await guardarPedidoCompleto(state);
-
       state.step = "finalizado";
-      return `${emocion} ¡Pedido confirmado! 🎉\nGracias por preferir *Delicias Monte Luna* 🌙✨`;
+
+      return `${emocion} ¡Perfecto! Tu pedido quedó registrado ✅\nGracias por preferir Delicias Monte Luna 🌙✨`;
     }
 
     return `${emocion} Para confirmar escribe *sí*.`;
   }
 
-  /* === 9) FINALIZADO === */
+  // ---------------------------------------------------------
+  // 🟣 Finalizado
+  // ---------------------------------------------------------
   if (state.step === "finalizado") {
-    return `${emocion} Tu pedido ya está confirmado 😊 Si deseas hacer otro, escribe *Hola*.`;
+    return `${emocion} Tu pedido ya fue confirmado 😊 Si deseas hacer otro, escribe *Hola*.`;
   }
 
-  /* === Rescate === */
-  return `${emocion} No entendí bien 😅 ¿Puedes repetirlo?`;
+  return `${emocion} No entendí 😅 ¿Puedes repetirlo?`;
 }
 
-module.exports = { nuevoEstado, procesarPaso };
+module.exports = {
+  iniciarFlujo,
+  procesarPaso
+};
