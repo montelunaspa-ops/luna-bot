@@ -1,3 +1,4 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
 diff --git a/index.js b/index.js
 index 3388664dd5bbd709f08da8f8dda06a1789e6747b..0664e60266d8a3c4752010e160672a547817ac85 100644
 --- a/index.js
@@ -468,3 +469,6 @@ index 3388664dd5bbd709f08da8f8dda06a1789e6747b..0664e60266d8a3c4752010e160672a54
  app.listen(PORT, () => {
    console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
  });
+ 
+EOF
+)
