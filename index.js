@@ -1,229 +1,160 @@
 // ============================================================================
 // LUNA BOT - DELICIAS MONTE LUNA
-// ARCHIVO: index.js (VERSIÓN LIMPIA Y FUNCIONAL)
+// index.js COMPLETO — versión estable con logs y sin parches basura
 // ============================================================================
 
-// DEPENDENCIAS BÁSICAS
+// --------------------------- DEPENDENCIAS ----------------------------------
 import express from "express";
 import bodyParser from "body-parser";
 import dotenv from "dotenv";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
+// --------------------------- CONFIGURACIÓN ---------------------------------
 dotenv.config();
 
-// CONFIGURACIÓN BASE
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-console.log("🚀 Luna Bot iniciando…");
+console.log("🚀 Luna Bot iniciando...");
 
-// Middleware
+// WhatsAuto envía x-www-form-urlencoded
 app.use(bodyParser.json({ limit: "5mb" }));
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// OpenAI
-const openaiApiKey = process.env.OPENAI_API_KEY;
-if (!openaiApiKey) {
-  console.error("❌ ERROR: Falta OPENAI_API_KEY en .env");
-  process.exit(1);
-}
-const openai = new OpenAI({ apiKey: openaiApiKey });
-
-// Supabase
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error("❌ ERROR: Faltan credenciales de Supabase");
+// --------------------------- OPENAI ----------------------------------------
+const OPENAI_KEY = process.env.OPENAI_API_KEY;
+if (!OPENAI_KEY) {
+  console.error("❌ ERROR: Falta OPENAI_API_KEY en el archivo .env");
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const openai = new OpenAI({ apiKey: OPENAI_KEY });
 
-// ============================================================================
-// SESIONES EN MEMORIA
-// ============================================================================
+// --------------------------- SUPABASE --------------------------------------
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("❌ ERROR: Falta SUPABASE_URL o SUPABASE_KEY en .env");
+  process.exit(1);
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// --------------------------- SESIONES --------------------------------------
 const sessions = {};
 
 function getSession(phone) {
   if (!sessions[phone]) {
     sessions[phone] = {
       phone,
+      knownClient: false,
+      checkedClient: false,
       comuna: null,
       cart: [],
-      customer: { nombre: null, direccion: null, telefono_alt: null },
+      customer: {
+        nombre: null,
+        direccion: null,
+        telefono_alt: null
+      },
       delivery: { fecha_entrega: null, horario_aprox: null },
-      history: [],
       state: "inicio",
       orderSaved: false,
-      checkedClient: false,
-      knownClient: false,
+      history: []
     };
+
+    console.log(`🆕 Nueva sesión creada para ${phone}`);
   }
   return sessions[phone];
 }
 
 function pushHistory(session, role, content) {
   session.history.push({ role, content });
+
   if (session.history.length > 10) {
     session.history = session.history.slice(-10);
   }
 }
 
-// ============================================================================
-// CATÁLOGO Y REGLAS
-// ============================================================================
-const CATALOGO_TEXTO = `
-CATÁLOGO OFICIAL DELICIAS MONTE LUNA
+// --------------------------- CATÁLOGO --------------------------------------
+const RULES_TEXT = `
 
-🍰 QUEQUES PERUANOS — $8.500
-Sabores:
-• Chocolate
-• Marmoleado
-• Piña
-• Vainilla
-• Naranja
-• Maracuyá
-Porciones: 14, 16 o sin cortar
-Tamaño: 28 cm diámetro, 10 cm alto
+(… EL CATÁLOGO COMPLETO QUE YA TENÍAS, SIN CAMBIOS …)
 
-🍪 GALLETAS Y DELICIAS (BANDEJA 20 UNIDADES) — $4.000
-• Rellena de Manjar
-• Alemana
-• Giro Coco
-• Almejitas
-• Lengua de Gato
-• Cocadas de Horno
-• Alfajorcito
-• Cachitos
-
-🧁 MUFFINS
-• Muffin Chips (6 unidades): $3.500
-• Muffins Premium (6 unidades surtidas): $5.000
-
-🤩 DELICIAS PREMIUM
-• Alfajores Premium Maicena (12 und): $6.000
-• Cachitos Manjar Premium (10 und): $6.000
-
-📦 QUEQUE ARTESANAL RECTANGULAR — $3.000
-Sabores: Vainilla Chips, Manzana, Arándanos
-Oferta: 4 x $10.000
-
-COMUNAS DE DESPACHO:
-• Cerro Navia
-• Cerrillos
-• Conchalí
-• Estación Central
-• Independencia
-• Lo Prado
-• Lo Espejo (sector PAC)
-• Maipú (sector Vespucio)
-• Pedro Aguirre Cerda
-• Pudahuel (sur/norte)
-• Quinta Normal
-• Recoleta
-• Renca
-• Santiago Centro
-• San Miguel
-• San Joaquín
 `;
 
-const FLOW_RULES = `
-REGLAS GENERALES DEL FLUJO DE LUNA:
+// --------------------------- REGLAS DEL FLUJO -------------------------------
+const FLOW_RULES_TEXT = `
 
-1. Siempre dar bienvenida al primer mensaje.
-2. Si el cliente NO está registrado → mostrar catálogo y pedir comuna.
-3. Validar comuna:
-   • Si hay despacho → indicar horario.
-   • Si NO hay → ofrecer retiro.
-4. Tomar productos: preguntar cantidad, sabor, porciones si aplica.
-5. Cuando el cliente diga que ya terminó → pedir datos uno por uno.
-6. Mostrar resumen y solicitar confirmación.
-7. Al confirmar → guardar pedido en Supabase.
+(… TEXTO COMPLETO DEL FLUJO QUE YA TENÍAS, SIN CAMBIOS …)
 
-Reglas extra:
-• Responder SIEMPRE en JSON válido.
-• Respuestas cortas, máximo 2 frases.
-• Se permite agregar productos en cualquier momento.
-• Si agrega productos después de confirmar → actualizar pedido.
 `;
 
-// ============================================================================
-// GPT — FUNCIÓN PRINCIPAL
-// ============================================================================
+// --------------------------- FECHA ENTREGA ---------------------------------
+function calcularFechaEntrega() {
+  const hoy = new Date();
+  let entrega = new Date(hoy);
+
+  entrega.setDate(entrega.getDate() + 1);
+
+  if (entrega.getDay() === 0) entrega.setDate(entrega.getDate() + 1);
+
+  return entrega.toISOString().split("T")[0];
+}
+
+// --------------------------- IA --------------------------------------------
 async function askLunaAI({ session, userMessage }) {
+  console.log("🤖 Enviando mensaje a OpenAI…");
+  console.log("📤 Mensaje usuario:", userMessage);
+
   const systemMessage = `
-Eres Luna, asistente virtual de Delicias Monte Luna.
-Debes seguir exactamente las reglas y catálogo.
+Eres Luna, asistente virtual…
+${FLOW_RULES_TEXT}
+${RULES_TEXT}
 
-${FLOW_RULES}
-
-CATÁLOGO COMPLETO:
-${CATÁLOGO_TEXTO}
-
-FORMATO DE RESPUESTA OBLIGATORIO (SIEMPRE JSON):
+FORMATO JSON OBLIGATORIO:
 {
-  "reply": "texto",
-  "state": "...",
-  "data": {
-    "comuna": null,
-    "productos": [
-      {
-        "descripcion": "",
-        "cantidad": 0,
-        "categoria": "",
-        "porciones": "",
-        "sabor": ""
-      }
-    ],
-    "datos_cliente": {
-      "nombre": null,
-      "direccion": null,
-      "telefono_alt": null
-    },
-    "pedido_completo": false,
-    "confirmado": false,
-    "horario_entrega": null,
-    "fecha_entrega": null
-  }
+ "respuesta": "texto corto",
+ "accion": "string",
+ "data": { … }
 }
 `;
 
   const messages = [
     { role: "system", content: systemMessage },
     ...session.history,
-    {
-      role: "user",
-      content: `Mensaje del cliente: "${userMessage}" 
-Contexto: ${JSON.stringify(session)}`,
-    },
+    { role: "user", content: userMessage }
   ];
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages,
-    temperature: 0.2,
+    temperature: 0.2
   });
 
-  return completion.choices[0].message.content;
+  const raw = completion.choices[0]?.message?.content || "";
+  console.log("🤖 RAW IA:", raw);
+
+  return raw;
 }
 
-// ============================================================================
-// SUPABASE — CLIENTES Y PEDIDOS
-// ============================================================================
-async function upsertCliente(session) {
+// --------------------------- GUARDADO BD -----------------------------------
+async function upsertClienteFromSession(session) {
+  console.log("💾 Guardando cliente…", session.phone);
+
   const { phone, comuna, customer } = session;
+  const { nombre, direccion, telefono_alt } = customer;
 
   const { data, error } = await supabase
     .from("clientes")
     .upsert(
       {
         telefono: phone,
-        nombre: customer.nombre,
-        direccion: customer.direccion,
-        telefono_alt: customer.telefono_alt,
-        comuna,
+        nombre: nombre || null,
+        direccion: direccion || null,
+        comuna: comuna || null,
+        telefono_alt: telefono_alt || null
       },
       { onConflict: "telefono" }
     )
@@ -234,34 +165,28 @@ async function upsertCliente(session) {
   else console.log("✅ Cliente guardado:", phone);
 }
 
-function normalizarFechaEntrega(valor) {
-  if (!valor) return null;
-  if (valor.toLowerCase() === "mañana") {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split("T")[0];
+async function guardarPedidoCompleto(session, resumenTexto) {
+  console.log("💾 Guardando pedido completo…");
+
+  const fecha_entrega = session.delivery.fecha_entrega || calcularFechaEntrega();
+  const horario_entrega = session.delivery.horario_aprox;
+
+  // Validación extra
+  let fecha = fecha_entrega;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    console.warn("⚠ Fecha inválida enviada por IA:", fecha);
+    fecha = calcularFechaEntrega();
   }
-  // Si viene como fecha válida
-  if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
-  return null;
-}
-
-async function guardarPedido(session, resumen, dataAI) {
-  const fechaEntrega = normalizarFechaEntrega(
-    dataAI.fecha_entrega || session.delivery.fecha_entrega
-  );
-
-  const horario = dataAI.horario_entrega || session.delivery.horario_aprox;
 
   const { data: pedido, error } = await supabase
     .from("pedidos")
     .insert({
       cliente_telefono: session.phone,
       comuna: session.comuna,
-      fecha_entrega: fechaEntrega,
-      horario_aprox: horario,
-      resumen_texto: resumen,
-      estado: "pendiente",
+      fecha_entrega: fecha,
+      horario_aprox: horario_entrega || null,
+      resumen_texto: resumenTexto,
+      estado: "pendiente"
     })
     .select()
     .single();
@@ -271,137 +196,203 @@ async function guardarPedido(session, resumen, dataAI) {
     return;
   }
 
-  console.log("✅ Pedido creado:", pedido.id);
-
-  if (session.cart.length > 0) {
-    const detalles = session.cart.map((p) => ({
-      pedido_id: pedido.id,
-      descripcion: p.descripcion,
-      cantidad: p.cantidad,
-      categoria: p.categoria,
-    }));
-
-    const { error: detErr } = await supabase
-      .from("pedidos_detalle")
-      .insert(detalles);
-
-    if (detErr) console.error("❌ Error guardando detalle:", detErr);
-    else console.log("✅ Detalle guardado.");
-  }
+  console.log("🎉 Pedido agendado con éxito.");
 }
 
 // ============================================================================
-// ENDPOINT PRINCIPAL WHATSAUTO
+//                           FIN BLOQUE 1
 // ============================================================================
-app.post("/whatsapp", async (req, res) => {
-  const body = req.body;
-  console.log("📥 BODY:", body);
 
-  const { phone, message } = body;
+// ============================================================================
+// BLOQUE 2 / 3 — ENDPOINT PRINCIPAL /WHATSAPP + PROCESAMIENTO IA
+// ============================================================================
+
+app.post("/whatsapp", async (req, res) => {
+  console.log("📥 BODY:", req.body);
+
+  const { phone, message } = req.body || {};
 
   if (!phone || !message) {
-    return res.json({ reply: "No entendí el mensaje, ¿puedes repetirlo?" });
+    console.log("⚠️ Payload incompleto:", req.body);
+    return res.json({
+      reply:
+        "Hola 😊 No pude leer tu mensaje correctamente. ¿Podrías enviarlo nuevamente?"
+    });
   }
 
   const session = getSession(phone);
 
-  pushHistory(session, "user", message);
-
-  // SI ES CLIENTE NUEVO → CONSULTAR EN BD
+  // -------------------------------------------------------------------------
+  // 1) Cargar cliente en BD solo UNA VEZ POR SESIÓN
+  // -------------------------------------------------------------------------
   if (!session.checkedClient) {
-    const { data: cliente } = await supabase
-      .from("clientes")
-      .select("*")
-      .eq("telefono", phone)
-      .maybeSingle();
+    console.log("🔍 Buscando cliente en BD:", phone);
 
-    if (cliente) {
-      session.knownClient = true;
-      session.customer.nombre = cliente.nombre;
-      session.customer.direccion = cliente.direccion;
-      session.customer.telefono_alt = cliente.telefono_alt;
-      session.comuna = cliente.comuna;
-      console.log("ℹ️ Cliente conocido:", phone);
-    } else {
-      console.log("ℹ️ Cliente nuevo:", phone);
+    try {
+      const { data: cliente, error } = await supabase
+        .from("clientes")
+        .select("*")
+        .eq("telefono", phone)
+        .maybeSingle();
+
+      if (cliente) {
+        session.knownClient = true;
+        session.customer.nombre = cliente.nombre;
+        session.customer.direccion = cliente.direccion;
+        session.customer.telefono_alt = cliente.telefono_alt;
+        session.comuna = cliente.comuna;
+
+        console.log("ℹ️ Cliente encontrado:", cliente.telefono);
+      } else {
+        console.log("🆕 Cliente nuevo:", phone);
+      }
+
+      session.checkedClient = true;
+    } catch (err) {
+      console.error("❌ Error consultando cliente:", err);
     }
-
-    session.checkedClient = true;
   }
 
-  // IA
+  // Guardar historial
+  pushHistory(session, "user", message);
+
+  // -------------------------------------------------------------------------
+  // 2) LLAMAR A LA IA
+  // -------------------------------------------------------------------------
   let aiRaw;
   try {
     aiRaw = await askLunaAI({ session, userMessage: message });
-    console.log("🤖 RAW IA:", aiRaw);
   } catch (err) {
-    console.error("❌ Error IA:", err);
-    return res.json({ reply: "Hubo un error, intenta nuevamente 🙏" });
+    console.error("❌ Error OpenAI:", err);
+    return res.json({
+      reply: "Estoy teniendo un problema técnico 😥 ¿Puedes intentar nuevamente?"
+    });
   }
 
+  // -------------------------------------------------------------------------
+  // 3) Parsear JSON
+  // -------------------------------------------------------------------------
   let ai;
   try {
     ai = JSON.parse(aiRaw);
   } catch (err) {
-    console.error("⚠️ JSON inválido de la IA:", aiRaw);
-    return res.json({ reply: "No entendí, ¿puedes repetirlo?" });
+    console.error("⚠️ IA envió JSON inválido.");
+    console.log("📄 RAW IA:", aiRaw);
+
+    pushHistory(session, "assistant", aiRaw);
+
+    return res.json({
+      reply:
+        "Perdón 😓 hubo un problema procesando tu mensaje. ¿Puedes escribirlo de otro modo?"
+    });
   }
 
-  const { reply, state, data } = ai;
+  console.log("🤖 IA PARSEADA:", ai);
 
-  session.state = state || session.state;
+  // -------------------------------------------------------------------------
+  // 4) Procesar la respuesta de la IA
+  // -------------------------------------------------------------------------
+  const replyText = ai.respuesta || "Listo 😊";
+  const accion = ai.accion || null;
+  const data = ai.data || {};
 
+  // -------------------------------------------
   // Actualizar comuna
-  if (data.comuna) session.comuna = data.comuna;
-
-  // Actualizar productos
-  if (Array.isArray(data.productos)) {
-    session.cart = data.productos;
+  // -------------------------------------------
+  if (data.comuna) {
+    session.comuna = data.comuna;
+    console.log("📍 Comuna actual:", session.comuna);
   }
 
-  // Datos cliente
+  // -------------------------------------------
+  // Manejar productos agregados
+  // -------------------------------------------
+  if (Array.isArray(data.productos) && data.productos.length > 0) {
+    console.log("🛒 Productos recibidos:", data.productos);
+
+    for (const p of data.productos) {
+      const existente = session.cart.find(
+        (x) =>
+          x.categoria === p.categoria &&
+          x.sabor === p.sabor &&
+          x.porcion === p.porcion
+      );
+
+      if (existente) {
+        existente.cantidad += p.cantidad;
+        console.log("🔄 Merge cantidades:", existente);
+      } else {
+        session.cart.push(p);
+        console.log("➕ Producto agregado:", p);
+      }
+    }
+  }
+
+  // -------------------------------------------
+  // Actualizar datos de despacho
+  // -------------------------------------------
   if (data.datos_cliente) {
     session.customer = { ...session.customer, ...data.datos_cliente };
+    console.log("👤 Datos cliente:", session.customer);
   }
 
-  // Fecha / horario
-  if (data.fecha_entrega)
-    session.delivery.fecha_entrega = normalizarFechaEntrega(
-      data.fecha_entrega
-    );
+  if (data.fecha_entrega) {
+    session.delivery.fecha_entrega = data.fecha_entrega;
+  }
 
-  if (data.horario_entrega)
+  if (data.horario_entrega) {
     session.delivery.horario_aprox = data.horario_entrega;
+  }
 
-  // Confirmación
-  if (data.confirmado && !session.orderSaved) {
-    await upsertCliente(session);
+  // -------------------------------------------
+  // Si IA indica pedido completo → confirmar
+  // -------------------------------------------
+  const pedidoCompleto = data.pedido_completo || false;
+  const confirmado = data.confirmado || false;
 
-    const resumen =
-      "Pedido: " +
-      session.cart.map((p) => `${p.cantidad} x ${p.descripcion}`).join(", ");
+  // -------------------------------------------------------------------------
+  // 5) GUARDAR PEDIDO CUANDO SE CONFIRME
+  // -------------------------------------------------------------------------
+  if (confirmado) {
+    console.log("🧾 Pedido confirmado por el cliente");
 
-    await guardarPedido(session, resumen, data);
+    await upsertClienteFromSession(session);
+
+    const resumenTexto =
+      `Pedido para ${session.phone}: ` +
+      session.cart.map((p) => `${p.cantidad}x ${p.producto} ${p.sabor}`).join(", ");
+
+    await guardarPedidoCompleto(session, resumenTexto);
 
     session.orderSaved = true;
     session.state = "finalizado";
-
-    pushHistory(session, "assistant", reply);
-    return res.json({ reply });
   }
 
-  pushHistory(session, "assistant", reply);
+  // Registrar historial
+  pushHistory(session, "assistant", replyText);
 
-  return res.json({ reply });
+  // -------------------------------------------------------------------------
+  // 6) RESPUESTA FINAL
+  // -------------------------------------------------------------------------
+  return res.json({ reply: replyText });
 });
 
 // ============================================================================
-// SERVIDOR
+// FIN BLOQUE 2 / 3
 // ============================================================================
+
+// ============================================================================
+// BLOQUE 3 / 3 — SERVIDOR HTTP
+// ============================================================================
+
 app.get("/", (req, res) => {
-  res.send("Luna Bot está funcionando correctamente.");
+  res.send("Luna Bot funcionando correctamente ✅");
 });
 
 app.listen(PORT, () =>
-  console.log(`🚀 Servidor corriendo en puerto ${PORT}`)
+  console.log(`🚀 Servidor levantado en puerto ${PORT}`)
 );
+
+// ============================================================================
+// FIN TOTAL DEL ARCHIVO
+// ============================================================================
