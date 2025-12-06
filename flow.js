@@ -13,7 +13,7 @@ const {
 } = require("./dbSave");
 
 // ===========================================================
-// 🟢 Crear estado inicial del flujo
+// 🟢 Crear estado inicial
 // ===========================================================
 function iniciarFlujo(state = {}, phone) {
   return {
@@ -31,20 +31,16 @@ function iniciarFlujo(state = {}, phone) {
 }
 
 // ===========================================================
-// 🟢 Calcular fecha entrega (día siguiente)
+// 🟢 Calcular fecha entrega
 // ===========================================================
 function calcularFechaEntrega() {
   const hoy = new Date();
   const manana = new Date(hoy);
   manana.setDate(hoy.getDate() + 1);
 
-  const dia = hoy.getDay(); // 0 domingo, 6 sábado
-
-  if (dia === 6) {
-    manana.setDate(hoy.getDate() + 2);
-  } else if (dia === 0) {
-    manana.setDate(hoy.getDate() + 1);
-  }
+  const dia = hoy.getDay();
+  if (dia === 6) manana.setDate(hoy.getDate() + 2);
+  if (dia === 0) manana.setDate(hoy.getDate() + 1);
 
   return manana.toISOString().split("T")[0];
 }
@@ -65,34 +61,24 @@ function preguntaSegunPaso(step) {
     case "solicitar_telefono2":
       return "¿Tienes algún teléfono adicional? Si no, escribe *no*.";
     case "confirmar":
-      return "¿Confirmas el pedido? Escribe *sí* para confirmar.";
+      return "¿Confirmas el pedido? Escribe *sí*.";
     default:
       return "¿En qué puedo ayudarte?";
   }
 }
 
 // ===========================================================
-// 🟢 Procesar cada mensaje
+// 🟢 Procesar mensajes
 // ===========================================================
 async function procesarPaso(state, mensaje) {
   const info = await interpretarMensaje(mensaje);
   const emocion = respuestaEmocional(info.emocion);
   const texto = info.texto_normalizado || mensaje;
 
-  // ---------------------------------------------------------
-  // 🔵 Preguntas → responder con rules + GPT
-  // ---------------------------------------------------------
-  if (info.intencion === "pregunta") {
-    const resp = await responderConocimiento(info.pregunta || texto);
-    return `${emocion} ${resp}\n\n${preguntaSegunPaso(state.step)}`;
-  }
-
-  // ---------------------------------------------------------
-  // 🔵 Saludo
-  // ---------------------------------------------------------
+  // ---------------- Saludo mejorado (evita "No entendí") ----------------
   if (
-    info.intencion === "saludo" &&
-    (state.step === "inicio" || state.step === "solicitar_comuna")
+    info.intencion === "saludo" ||
+    (state.step === "inicio" && info.intencion !== "pregunta")
   ) {
     state.step = "solicitar_comuna";
     return (
@@ -101,9 +87,13 @@ async function procesarPaso(state, mensaje) {
     );
   }
 
-  // ---------------------------------------------------------
-  // 🟣 Paso: solicitar comuna
-  // ---------------------------------------------------------
+  // ---------------- Preguntas generales ----------------
+  if (info.intencion === "pregunta") {
+    const resp = await responderConocimiento(info.pregunta || texto);
+    return `${emocion} ${resp}\n\n${preguntaSegunPaso(state.step)}`;
+  }
+
+  // ---------------- Solicitar comuna ----------------
   if (state.step === "solicitar_comuna") {
     let comunaCliente = comunaValida(info.comuna || texto);
 
@@ -131,7 +121,6 @@ async function procesarPaso(state, mensaje) {
 
     state.comuna = comunaCliente;
     state.horarioEntrega = rules.horarios[comunaCliente];
-    state.entrega = "domicilio";
     state.step = "tomar_pedido";
 
     return (
@@ -141,9 +130,7 @@ async function procesarPaso(state, mensaje) {
     );
   }
 
-  // ---------------------------------------------------------
-  // 🟠 Paso: tomar pedido
-  // ---------------------------------------------------------
+  // ---------------- Tomar pedido ----------------
   if (state.step === "tomar_pedido") {
     const lower = texto.toLowerCase();
 
@@ -171,30 +158,23 @@ async function procesarPaso(state, mensaje) {
     return `${emocion} Anotado 😊\n¿Algo más? Si no, escribe *nada más*.`;
   }
 
-  // ---------------------------------------------------------
-  // 🟡 Solicitar nombre
-  // ---------------------------------------------------------
+  // ---------------- Nombre ----------------
   if (state.step === "solicitar_nombre") {
     state.datos.nombre = mensaje;
     state.step = "solicitar_direccion";
     return `${emocion} Gracias 😊 ¿Cuál es la dirección exacta?`;
   }
 
-  // ---------------------------------------------------------
-  // 🟡 Solicitar dirección
-  // ---------------------------------------------------------
+  // ---------------- Dirección ----------------
   if (state.step === "solicitar_direccion") {
     state.datos.direccion = mensaje;
     state.step = "solicitar_telefono2";
     return `${emocion} Perfecto 🙌 ¿Tienes un teléfono adicional? Si no, escribe *no*.`;
   }
 
-  // ---------------------------------------------------------
-  // 🟡 Teléfono adicional
-  // ---------------------------------------------------------
+  // ---------------- Teléfono adicional ----------------
   if (state.step === "solicitar_telefono2") {
     const lower = texto.toLowerCase();
-
     state.datos.telefono2 = lower === "no" ? "" : mensaje;
 
     state.fechaEntrega = calcularFechaEntrega();
@@ -221,9 +201,7 @@ Si está todo correcto, escribe *sí* para confirmar.`;
     return `${emocion} ${resumen}`;
   }
 
-  // ---------------------------------------------------------
-  // 🟢 Confirmación
-  // ---------------------------------------------------------
+  // ---------------- Confirmación ----------------
   if (state.step === "confirmar") {
     const lower = texto.toLowerCase();
 
@@ -247,9 +225,7 @@ Si está todo correcto, escribe *sí* para confirmar.`;
     return `${emocion} Para confirmar escribe *sí*.`;
   }
 
-  // ---------------------------------------------------------
-  // 🟣 Finalizado
-  // ---------------------------------------------------------
+  // ---------------- Finalizado ----------------
   if (state.step === "finalizado") {
     return `${emocion} Tu pedido ya fue confirmado 😊 Si deseas hacer otro, escribe *Hola*.`;
   }
@@ -257,7 +233,4 @@ Si está todo correcto, escribe *sí* para confirmar.`;
   return `${emocion} No entendí 😅 ¿Puedes repetirlo?`;
 }
 
-module.exports = {
-  iniciarFlujo,
-  procesarPaso
-};
+module.exports = { iniciarFlujo, procesarPaso };
