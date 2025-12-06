@@ -1,8 +1,8 @@
 diff --git a/index.js b/index.js
-index 3388664dd5bbd709f08da8f8dda06a1789e6747b..4c93fba375b802debd147066e217fea1f1838499 100644
+index 3388664dd5bbd709f08da8f8dda06a1789e6747b..0664e60266d8a3c4752010e160672a547817ac85 100644
 --- a/index.js
 +++ b/index.js
-@@ -1,93 +1,107 @@
+@@ -1,93 +1,108 @@
  // ============================================================================
  // LUNA BOT - DELICIAS MONTE LUNA
  // ARCHIVO: index.js
@@ -21,6 +21,7 @@ index 3388664dd5bbd709f08da8f8dda06a1789e6747b..4c93fba375b802debd147066e217fea1
  // CONFIGURACIÓN BASE
  const app = express();
  const PORT = process.env.PORT || 3000;
++console.log("🚀 Iniciando Luna Bot (index.js cargado correctamente)");
  
  // Permite recibir JSON y x-www-form-urlencoded (WhatsAuto lo requiere)
  app.use(bodyParser.json({ limit: "5mb" }));
@@ -114,7 +115,7 @@ index 3388664dd5bbd709f08da8f8dda06a1789e6747b..4c93fba375b802debd147066e217fea1
          - 14
          - 16
          - Sin cortar
-@@ -274,185 +288,195 @@ function normalizarProductos(lista) {
+@@ -274,185 +289,195 @@ function normalizarProductos(lista) {
      .filter(Boolean);
  }
  
@@ -323,7 +324,7 @@ index 3388664dd5bbd709f08da8f8dda06a1789e6747b..4c93fba375b802debd147066e217fea1
  
    if (error) console.error("❌ Error guardando cliente:", error);
    else console.log("✅ Cliente guardado:", phone);
-@@ -476,115 +500,121 @@ async function guardarPedidoCompleto(session) {
+@@ -476,115 +501,121 @@ async function guardarPedidoCompleto(session) {
      })
      .select()
      .single();
