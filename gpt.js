@@ -1,130 +1,150 @@
 const OpenAI = require("openai");
 const rules = require("./rules");
+const { comunasChile } = require("./utils");
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-/* ============================================
-   INTERPRETAR MENSAJE (intención básica)
-============================================ */
-async function interpretarMensaje(mensaje) {
+/* ===========================================================
+   🟢 INTERPRETAR MENSAJE DEL CLIENTE
+   =========================================================== */
+async function interpretarMensaje(texto) {
   try {
     const prompt = `
-Eres un clasificador de mensajes para un bot de WhatsApp que vende pastelería.
+Eres un analizador de mensajes para un bot de ventas de pastelería.
+Devuelve SIEMPRE un JSON válido con:
 
-Debes analizar el mensaje y devolver SOLO un JSON con esta forma:
 {
-  "intencion": "saludo | pregunta | pedido | otro",
-  "texto_normalizado": "",
-  "pregunta": ""
+  "intencion": "...",
+  "pregunta": "...",
+  "emocion": "...",
+  "comuna": "...",
+  "pedido": "...",
+  "texto_normalizado": "..."
 }
 
 Reglas:
-- "saludo" si dice hola, buenas, buen día, etc.
-- "pregunta" si hay signos de pregunta o comienza con qué, donde/dónde, cómo, cuánto, tienen, vende(n), etc.
-- "pedido" si menciona explícitamente productos, cantidades o "quiero", "me das", "necesito" algo del catálogo (queques, muffins, galletas, alfajores, cachitos, queque rectangular).
-- En caso de duda, usar "otro".
-- texto_normalizado: versión simple del mensaje en minúsculas.
-- pregunta: si es pregunta, copia aquí la pregunta principal; en caso contrario, deja cadena vacía.
+- "saludo" si dice hola, buenos días, etc.
+- "pregunta" si pide información ("precio", "cuánto vale", "vende X").
+- "pedido" si menciona un producto del catálogo.
+- "comuna" debe ser detectada si corresponde.
+- "emocion": neutral, feliz, molesto, confuso.
 
-Mensaje del cliente:
-"${mensaje}"
+Texto del cliente:
+"${texto}"
 `;
 
-    const r = await client.chat.completions.create({
+    const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.1,
-      messages: [{ role: "user", content: prompt }]
+      temperature: 0,
+      messages: [{ role: "system", content: prompt }]
     });
 
-    const raw = r.choices[0].message.content.trim();
+    let res = completion.choices[0].message.content;
 
     try {
-      return JSON.parse(raw);
+      return JSON.parse(res);
     } catch {
       return {
         intencion: "otro",
-        texto_normalizado: mensaje.toLowerCase(),
-        pregunta: ""
+        emocion: "neutral",
+        texto_normalizado: texto
       };
     }
   } catch (e) {
-    console.error("❌ Error en interpretarMensaje:", e);
+    console.error("❌ Error interpretarMensaje:", e);
     return {
       intencion: "otro",
-      texto_normalizado: mensaje.toLowerCase(),
-      pregunta: ""
+      emocion: "neutral",
+      texto_normalizado: texto
     };
   }
 }
 
-/* ============================================
-   RESPONDER PREGUNTAS (FAQ / información)
-============================================ */
+/* ===========================================================
+   🟣 VALIDAR COMUNA DE TODO CHILE (GPT)
+   =========================================================== */
+async function validarComunaChile(texto) {
+  try {
+    const prompt = `
+Analiza este texto y determina si contiene una comuna real de Chile.
+
+Texto: "${texto}"
+
+Devolver SOLO:
+- El nombre exacto de la comuna si existe.
+- "NO" si no corresponde a ninguna comuna de Chile.
+
+Listado de comunas de Chile:
+${comunasChile.join(", ")}
+`;
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [{ role: "system", content: prompt }]
+    });
+
+    let comuna = completion.choices[0].message.content.trim();
+    return comuna;
+  } catch (e) {
+    console.error("❌ Error validarComunaChile:", e);
+    return "NO";
+  }
+}
+
+/* ===========================================================
+   🟣 RESPONDER PREGUNTAS BASADAS EN rules.js
+   =========================================================== */
 async function responderConocimiento(pregunta) {
   try {
     const prompt = `
-Eres Luna, asistente virtual de Delicias Monte Luna.
-
-Responde de forma CORTA, CLARA y AMABLE usando SOLO esta información:
+Tu tarea es responder preguntas SOLO usando la información siguiente:
 
 CATÁLOGO:
 ${rules.catalogo}
 
-COMUNAS DE DESPACHO:
-${rules.comunasTexto}
+COMUNAS:
+${rules.comunasCobertura.join(", ")}
 
-INFORMACIÓN GENERAL:
-${rules.baseConocimiento}
+HORARIOS:
+${JSON.stringify(rules.horarios)}
+
+Debes ser breve, claro y amable.
 
 Pregunta del cliente:
 "${pregunta}"
 `;
 
-    const r = await client.chat.completions.create({
+    const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.2,
-      messages: [{ role: "user", content: prompt }]
+      messages: [{ role: "system", content: prompt }]
     });
 
-    return r.choices[0].message.content.trim();
+    return completion.choices[0].message.content.trim();
   } catch (e) {
-    console.error("❌ Error en responderConocimiento:", e);
-    return "Puedo ayudarte con esa información 😊";
+    console.error("❌ Error responderConocimiento:", e);
+    return "No tengo información exacta de eso, pero puedo ayudarte 😊";
   }
 }
 
-/* ============================================
-   VALIDAR COMUNA DE CHILE (GPT)
-============================================ */
-async function validarComunaChile(texto) {
-  try {
-    const prompt = `
-Valida si el siguiente texto contiene una comuna real de Chile:
-
-"${texto}"
-
-Responde SOLO de estas dos formas:
-- "SI: NombreDeComuna"
-- "NO"
-`;
-
-    const r = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [{ role: "user", content: prompt }]
-    });
-
-    return r.choices[0].message.content.trim();
-  } catch (e) {
-    console.error("❌ Error en validarComunaChile:", e);
-    return "NO";
+/* ===========================================================
+   🟣 RESPUESTA EMOCIONAL
+   =========================================================== */
+function respuestaEmocional(tipo) {
+  switch (tipo) {
+    case "feliz": return "😊";
+    case "molesto": return "😟";
+    case "confuso": return "🤔";
+    default: return "😊";
   }
 }
 
 module.exports = {
   interpretarMensaje,
+  validarComunaChile,
   responderConocimiento,
-  validarComunaChile
+  respuestaEmocional
 };
