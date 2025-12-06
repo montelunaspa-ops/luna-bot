@@ -5,7 +5,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.log("❌ ERROR: Faltan variables SUPABASE_URL o SUPABASE_KEY");
+  console.log("⚠️ SUPABASE_URL o SUPABASE_KEY no están definidas en .env");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
