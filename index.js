@@ -1,138 +1,112 @@
-/**************************************************************************
- *  LUNA BOT – ARCHIVO ÚNICO index.js
- *  Todo integrado: flujo, reglas, GPT, utils, DB y servidor Express.
- **************************************************************************/
+/************************************************************
+ * LUNA BOT — VERSIÓN FINAL CONSOLIDADA
+ * Un solo archivo con TODO integrado:
+ * - Flujo
+ * - Interpretación IA (GPT-4o-mini)
+ * - Pedidos + clientes + historial
+ * - Validación inteligente de comunas
+ * - Catálogo en formato tabulado perfecto
+ ************************************************************/
 
 require("dotenv").config();
 const express = require("express");
-const app = express();
 const OpenAI = require("openai");
 const { createClient } = require("@supabase/supabase-js");
 
+const app = express();
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
-/********************************************
- * 🔵 CONFIGURACIÓN OPENAI Y SUPABASE
- ********************************************/
+/************************************************************
+ * 🔵 CONFIGURACIÓN IA Y SUPABASE
+ ************************************************************/
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
-
-/********************************************
- * 🔵 REGLAS Y CATÁLOGO (ANTES rules.js)
- ********************************************/
-const RULES = {
-  catalogo: `
+/************************************************************
+ * 🔵 CATÁLOGO (formato tabulado y EXACTO)
+ ************************************************************/
+const CATALOGO = `
 📦 *CATÁLOGO DELICIAS MONTE LUNA*
 
 🍰 *QUEQUES PERUANOS* — $8.500  
-Sabores: Chocolate, Marmoleado, Piña, Vainilla, Naranja, Maracuyá  
+Sabores disponibles: Chocolate, Marmoleado, Piña, Vainilla, Naranja, Maracuyá  
 Porciones: 14, 16 o sin cortar  
-Tamaño: 28 cm x 10 cm
+Tamaño: 28 cm de diámetro, 10 cm de alto aprox.  
 
-🍪 *GALLETAS Y DELICIAS* — Bandejas de 20 unidades — $4.000  
-Variedades: Rellena de Manjar, Alemana, Giro Coco, Almejitas, Lengua de Gato,
-Cocadas de Horno, Alfajorcito, Cachitos
+🍪 *GALLETAS Y DELICIAS* — $4.000  
+Bandejas de 20 unidades  
+Variedades:  
+• Rellena de Manjar  
+• Alemana  
+• Giro Coco  
+• Almejitas  
+• Lengua de Gato  
+• Cocadas de Horno  
+• Alfajorcito  
+• Cachitos  
 
-🧁 *MUFFINS*
+🧁 *MUFFINS*  
 • Chips (6 unidades): $3.500  
-• Premium surtido (6 unidades): $5.000  
-Sabores: Chocolate, Red Velvet, Arándano, Coco y Chips
+• Premium Surtido (6 unidades): $5.000  
 
-🤩 *DELICIAS PREMIUM*
-• Alfajores de Maicena Premium (12 unidades, 8–9 cm): $6.000  
-• Cachitos Manjar Premium (10 unidades): $6.000
+🤩 *DELICIAS PREMIUM*  
+• Alfajores de Maicena Premium (12 unidades): $6.000  
+• Cachitos Manjar Premium (10 unidades): $6.000  
 
-🍞 *QUEQUE ARTESANAL RECTANGULAR*
+🍞 *QUEQUE ARTESANAL RECTANGULAR*  
 • Sabores: Vainilla Chips, Manzana, Arándanos  
 • Tamaño: 20 cm  
 • Precio: $3.000  
-• Oferta: 4 unidades por $10.000
-`,
+• Oferta: 4 unidades por $10.000  
+`;
 
-  comunasCobertura: [
-    "Cerro Navia","Cerrillos","Conchalí","Estación Central","Independencia",
-    "Lo Prado","Lo Espejo","Maipú","Pedro Aguirre Cerda","Pudahuel",
-    "Quinta Normal","Recoleta","Renca","Santiago Centro","San Miguel","San Joaquín"
-  ],
+const COMUNAS_COBERTURA = [
+  "Cerro Navia", "Cerrillos", "Conchalí", "Estación Central", "Independencia",
+  "Lo Prado", "Lo Espejo", "Maipú", "Pedro Aguirre Cerda", "Pudahuel",
+  "Quinta Normal", "Recoleta", "Renca", "Santiago Centro", "San Miguel", "San Joaquín"
+];
 
-  horarios: {
-    "Cerro Navia": "12:00 - 15:00",
-    "Cerrillos": "12:00 - 15:00",
-    "Conchalí": "12:00 - 15:00",
-    "Estación Central": "12:00 - 15:00",
-    "Independencia": "12:00 - 15:00",
-    "Lo Prado": "12:00 - 15:00",
-    "Lo Espejo": "12:00 - 15:00",
-    "Maipú": "12:00 - 15:00",
-    "Pedro Aguirre Cerda": "12:00 - 15:00",
-    "Pudahuel": "12:00 - 15:00",
-    "Quinta Normal": "12:00 - 15:00",
-    "Recoleta": "12:00 - 15:00",
-    "Renca": "12:00 - 15:00",
-    "Santiago Centro": "12:00 - 15:00",
-    "San Miguel": "12:00 - 15:00",
-    "San Joaquín": "12:00 - 15:00"
-  },
-
-  bienvenida: "¡Hola! Soy Luna, tu asistente virtual de *Delicias Monte Luna* 🌙✨"
+const HORARIOS = {
+  "Cerro Navia": "13:00 - 16:00",
+  "Cerrillos": "12:00 - 15:00",
+  "Conchalí": "13:00 - 17:00",
+  "Estación Central": "12:00 - 16:00",
+  "Independencia": "13:00 - 17:00",
+  "Lo Prado": "12:00 - 16:00",
+  "Lo Espejo": "12:00 - 16:00",
+  "Maipú": "13:00 - 17:00",
+  "Pedro Aguirre Cerda": "12:00 - 15:00",
+  "Pudahuel": "13:00 - 17:00",
+  "Quinta Normal": "12:00 - 16:00",
+  "Recoleta": "13:00 - 17:00",
+  "Renca": "13:00 - 17:00",
+  "Santiago Centro": "12:00 - 16:00",
+  "San Miguel": "12:00 - 15:00",
+  "San Joaquín": "12:00 - 15:00"
 };
 
-/********************************************
- * 🔵 UTILS (ANTES utils.js)
- ********************************************/
-function normalizarTelefono(t) {
-  return t.replace(/\s+/g, "").replace(/[^0-9+]/g, "");
-}
-
-function comunaValida(c) {
-  if (!c) return null;
-  c = c.trim().toLowerCase();
-
-  const encontrada = RULES.comunasCobertura.find(
-    x => x.toLowerCase() === c
-  );
-  return encontrada || null;
-}
-
-/********************************************
- * 🔵 GPT (ANTES gpt.js)
- ********************************************/
-async function interpretarMensaje(mensaje) {
+/************************************************************
+ * 🔵 INTERPRETACIÓN CON GPT — INTENCIÓN + COMUNA + PEDIDO
+ ************************************************************/
+async function interpretarMensaje(msg) {
   const prompt = `
-Eres un modelo que analiza intención. Debes devolver JSON válido.
+Eres un analizador experto de mensajes de WhatsApp.
+Devuelve SIEMPRE JSON válido con esta estructura:
 
-Intenciones posibles:
-- saludo
-- pregunta
-- comuna
-- pedido
-- otro
-
-Emociones:
-- feliz
-- neutro
-- molesto
-
-Detecta comuna SOLO si es de Chile.
-
-Si detectas un producto, responde:
-"pedido": "producto"
-
-JSON final:
 {
- "intencion":"",
- "texto_normalizado":"",
- "emocion":"",
- "comuna":"",
- "pedido":""
+ "intencion": "saludo | pregunta | comuna | pedido | otro",
+ "emocion": "feliz | neutro | molesto",
+ "texto_normalizado": "",
+ "comuna": "",
+ "pedido": ""
 }
 
-Mensaje: "${mensaje}"
+- Detecta comunas de Chile aunque estén mal escritas.
+- Detecta si el usuario está pidiendo un producto.
+- Mantén texto_normalizado para comparar.
+
+Mensaje del usuario: "${msg}"
 `;
 
   const r = await openai.chat.completions.create({
@@ -144,36 +118,19 @@ Mensaje: "${mensaje}"
   try {
     return JSON.parse(r.choices[0].message.content);
   } catch {
-    return { intencion: "otro", texto_normalizado: mensaje, emocion: "neutro" };
+    return { intencion: "otro", texto_normalizado: msg, emocion: "neutro" };
   }
 }
 
-async function responderConocimiento(pregunta) {
-  const prompt = `
-Responde SOLO usando este catálogo:
-
-${RULES.catalogo}
-
-Pregunta: "${pregunta}"
-`;
-  const r = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0
-  });
-
-  return r.choices[0].message.content;
-}
-
+/************************************************************
+ * 🔵 VALIDACIÓN INTELIGENTE DE COMUNA (GPT)
+ ************************************************************/
 async function validarComunaChile(texto) {
   const prompt = `
-Detecta si esto es una comuna chilena. 
+Del siguiente texto identifica si corresponde a una comuna REAL de Chile.
+Responde SOLO el nombre en limpio o "NO".
 
 Texto: "${texto}"
-
-Responde SOLO:
-- nombre de comuna
-- o "NO"
 `;
 
   const r = await openai.chat.completions.create({
@@ -185,209 +142,269 @@ Responde SOLO:
   return r.choices[0].message.content.trim();
 }
 
-function emojiEmocion(e) {
-  if (e === "feliz") return "😊";
-  if (e === "molesto") return "😥";
-  return "🙂";
-}
+/************************************************************
+ * 🔵 FLUJO COMPLETO EN MEMORIA
+ ************************************************************/
+const sesiones = {};
 
-/********************************************
- * 🔵 DB (ANTES dbSave.js)
- ********************************************/
-async function guardarHistorial(telefono, mensaje, tipo) {
-  await supabase.from("historial").insert({
-    telefono,
-    mensaje,
-    tipo
-  });
-}
-
-async function guardarPedidoTemporal(telefono, pedido) {
-  await supabase.from("pedidos_temporales")
-    .upsert({ telefono, pedido }, { onConflict: "telefono" });
-}
-
-async function guardarPedidoCompleto(state) {
-  await supabase.from("pedidos").insert({
-    telefono: state.phone,
-    pedido: state.pedido,
-    comuna: state.comuna,
-    nombre: state.datos.nombre,
-    direccion: state.datos.direccion,
-    telefono2: state.datos.telefono2,
-    fecha_entrega: state.fechaEntrega,
-    horario: state.horarioEntrega
-  });
-}
-
-/********************************************
- * 🔵 FLUJO (ANTES flow.js)
- ********************************************/
-function crearEstado(phone) {
+function nuevaSesion(phone) {
   return {
     phone,
     step: "inicio",
-    entrega: null,
     comuna: null,
     pedido: [],
     datos: { nombre: "", direccion: "", telefono2: "" },
+    entrega: "domicilio",
     horarioEntrega: "",
     fechaEntrega: ""
   };
 }
 
-function calcularFechaEntrega() {
-  const hoy = new Date();
-  const manana = new Date(hoy);
-  manana.setDate(hoy.getDate() + 1);
-  return manana.toISOString().split("T")[0];
+/************************************************************
+ * 🔵 GUARDAR HISTORIAL SUPABASE
+ ************************************************************/
+async function guardarHistorial(phone, mensaje, tipo) {
+  await supabase.from("historial").insert({
+    telefono: phone,
+    mensaje,
+    tipo
+  });
 }
 
-async function procesarPaso(state, msg) {
-  const info = await interpretarMensaje(msg);
-  const emo = emojiEmocion(info.emocion);
-  const texto = info.texto_normalizado || msg;
+/************************************************************
+ * 🔵 GUARDAR PEDIDO TEMPORAL
+ ************************************************************/
+async function guardarPedidoTemporal(phone, pedido) {
+  await supabase
+    .from("pedidos_temporales")
+    .upsert({ telefono: phone, pedido });
+}
 
-  console.log("➡ INTENCIÓN DETECTADA:", info);
+/************************************************************
+ * 🔵 GUARDAR PEDIDO FINAL
+ ************************************************************/
+async function guardarPedidoCompleto(state) {
+  await supabase.from("pedidos").insert({
+    telefono: state.phone,
+    pedido: state.pedido,
+    nombre: state.datos.nombre,
+    direccion: state.datos.direccion,
+    telefono2: state.datos.telefono2,
+    comuna: state.comuna,
+    fecha_entrega: state.fechaEntrega,
+    horario: state.horarioEntrega
+  });
+}
 
-  /******** SALUDO ********/
+/************************************************************
+ * 🔵 EMOCIÓN → EMOJI
+ ************************************************************/
+function emo(e) {
+  if (e === "feliz") return "😊";
+  if (e === "molesto") return "😥";
+  return "🙂";
+}
+
+/************************************************************
+ * 🔵 PROCESAR MENSAJE
+ ************************************************************/
+async function procesar(state, mensaje) {
+  const info = await interpretarMensaje(mensaje);
+  console.log("➡ INTENCIÓN:", info);
+
+  const emoji = emo(info.emocion);
+  const txt = info.texto_normalizado || mensaje;
+
+  /***********************
+   * SALUDO
+   ***********************/
   if (info.intencion === "saludo" && state.step === "inicio") {
-    state.step = "solicitar_comuna";
-    return `${emo} ${RULES.bienvenida}\n\n${RULES.catalogo}\n¿En qué comuna será el despacho?`;
+    state.step = "comuna";
+    return `${emoji} ¡Hola! Soy Luna, asistente de *Delicias Monte Luna* 🌙✨  
+${CATALOGO}
+¿En qué comuna será el despacho?`;
   }
 
-  /******** COMUNA ********/
-  if (state.step === "solicitar_comuna") {
-    let c = comunaValida(texto);
+  /***********************
+   * PREGUNTAS AI
+   ***********************/
+  if (info.intencion === "pregunta") {
+    const prompt = `
+Responde usando SOLO esta información:
 
-    if (!c) {
-      const detectada = await validarComunaChile(texto);
+${CATALOGO}
 
-      if (detectada === "NO") {
-        return `${emo} No logré reconocer esa comuna 😅. Ingresa nuevamente la comuna.`;
-      }
+Pregunta del cliente: "${mensaje}"
+`;
+    const r = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0
+    });
 
-      if (!RULES.comunasCobertura.includes(detectada)) {
-        state.entrega = "retiro";
-        state.comuna = detectada;
-        state.step = "tomar_pedido";
-        return `${emo} No hacemos despacho en *${detectada}* 😔\nPuedes retirar en *Calle Chacabuco 1120, Santiago Centro*.\n¿Qué deseas pedir?`;
-      }
+    return `${emoji} ${r.choices[0].message.content}`;
+  }
 
-      c = detectada;
+  /***********************
+   * PASO 1 — COMUNA
+   ***********************/
+  if (state.step === "comuna") {
+    let comuna = await validarComunaChile(txt);
+
+    if (comuna === "NO") {
+      return `${emoji} No logré reconocer esa comuna 😅\nIndícala nuevamente.`;
     }
 
+    if (!COMUNAS_COBERTURA.includes(comuna)) {
+      state.entrega = "retiro";
+      state.comuna = comuna;
+      state.step = "pedido";
+      return `${emoji} No tenemos despacho en *${comuna}* 😔  
+Puedes retirar en *Calle Chacabuco 1120, Santiago Centro*.  
+¿Qué deseas pedir?`;
+    }
+
+    state.comuna = comuna;
+    state.horarioEntrega = HORARIOS[comuna];
     state.entrega = "domicilio";
-    state.comuna = c;
-    state.horarioEntrega = RULES.horarios[c];
-    state.step = "tomar_pedido";
+    state.step = "pedido";
 
-    return `${emo} Perfecto, hacemos despacho en *${c}*.\nHorario aproximado: *${state.horarioEntrega}*\n¿Qué deseas pedir?`;
+    return `${emoji} Perfecto 😊 hacemos despacho en *${comuna}*.  
+Horario estimado: *${state.horarioEntrega}*  
+¿Qué deseas pedir?`;
   }
 
-  /******** PEDIDO ********/
-  if (state.step === "tomar_pedido") {
-    const low = texto.toLowerCase();
+  /***********************
+   * PASO 2 — PEDIDO
+   ***********************/
+  if (state.step === "pedido") {
+    const lower = txt.toLowerCase();
 
-    if (["nada más", "nada mas", "eso es todo"].some(x => low.includes(x))) {
+    if (["nada más", "nada mas", "eso es todo", "listo"].includes(lower)) {
       if (state.pedido.length === 0) {
-        return `${emo} No tengo productos anotados 😅\n¿Qué deseas pedir?`;
+        return `${emoji} Aún no tengo productos anotados 😅\n¿Qué deseas pedir?`;
       }
-      state.step = "solicitar_nombre";
-      return `${emo} Perfecto 😊 ¿Cuál es tu nombre y apellido?`;
+      state.step = "nombre";
+      return `${emoji} Perfecto 😊 ¿Cuál es tu nombre y apellido?`;
     }
 
-    if (info.pedido) state.pedido.push(info.pedido);
-    else state.pedido.push(texto);
-
+    state.pedido.push(info.pedido || txt);
     await guardarPedidoTemporal(state.phone, state.pedido);
 
-    return `${emo} Anotado 😊 ¿Algo más? Si no, escribe *nada más*.`;
+    return `${emoji} Anotado 😊\nCuando termines, escribe *nada más*.`;
   }
 
-  /******** NOMBRE ********/
-  if (state.step === "solicitar_nombre") {
-    state.datos.nombre = msg;
-    state.step = "solicitar_direccion";
-    return `${emo} ¿Cuál es la dirección exacta?`;
+  /***********************
+   * PASO 3 — NOMBRE
+   ***********************/
+  if (state.step === "nombre") {
+    state.datos.nombre = mensaje;
+    state.step = "direccion";
+    return `${emoji} Gracias 😊 ¿Cuál es la dirección exacta?`;
   }
 
-  /******** DIRECCIÓN ********/
-  if (state.step === "solicitar_direccion") {
-    state.datos.direccion = msg;
-    state.step = "solicitar_telefono2";
-    return `${emo} ¿Teléfono adicional? Si no, escribe *no*.`;
+  /***********************
+   * PASO 4 — DIRECCIÓN
+   ***********************/
+  if (state.step === "direccion") {
+    state.datos.direccion = mensaje;
+    state.step = "telefono2";
+    return `${emoji} ¿Tienes teléfono adicional? Si no, escribe *no*.`;
   }
 
-  /******** TELÉFONO 2 ********/
-  if (state.step === "solicitar_telefono2") {
-    state.datos.telefono2 = msg.toLowerCase() === "no" ? "" : msg;
+  /***********************
+   * PASO 5 — TELÉFONO 2
+   ***********************/
+  if (state.step === "telefono2") {
+    state.datos.telefono2 = mensaje.toLowerCase() === "no" ? "" : mensaje;
 
-    state.fechaEntrega = calcularFechaEntrega();
+    const hoy = new Date();
+    const entrega = new Date(hoy);
+    entrega.setDate(hoy.getDate() + (hoy.getDay() === 6 ? 2 : hoy.getDay() === 0 ? 1 : 1));
+    state.fechaEntrega = entrega.toISOString().split("T")[0];
+
     state.step = "confirmar";
 
-    return (
-      `${emo} Resumen del pedido 📦\n` +
-      state.pedido.map(p => "- " + p).join("\n") +
-      `\n\nCliente: ${state.datos.nombre}\nDirección: ${state.datos.direccion}\nTeléfonos: ${state.phone}${state.datos.telefono2 ? "/" + state.datos.telefono2 : ""}\nComuna: ${state.comuna}\n\n` +
-      `Entrega: ${state.entrega === "domicilio"
-        ? `Despacho ${state.fechaEntrega} entre ${state.horarioEntrega}`
-        : `Retiro ${state.fechaEntrega} en Calle Chacabuco 1120`
-      }\n\n` +
-      `¿Confirmas? Responde *sí*.`
-    );
+    const resumen = `
+Resumen del pedido 📦
+${state.pedido.map(p => "- " + p).join("\n")}
+
+Datos del cliente 🧾
+• Nombre: ${state.datos.nombre}
+• Dirección: ${state.datos.direccion}
+• Teléfonos: ${state.phone}${state.datos.telefono2 ? " / " + state.datos.telefono2 : ""}
+• Comuna: ${state.comuna}
+
+Entrega: ${
+      state.entrega === "domicilio"
+        ? `Despacho el *${state.fechaEntrega}* entre *${state.horarioEntrega}*`
+        : `Retiro el *${state.fechaEntrega}* en Calle Chacabuco 1120`
+    }
+
+¿Confirmas el pedido? Escribe *sí*.
+`;
+
+    return `${emoji} ${resumen}`;
   }
 
-  /******** CONFIRMACIÓN ********/
+  /***********************
+   * PASO 6 — CONFIRMAR
+   ***********************/
   if (state.step === "confirmar") {
-    if (texto.toLowerCase().startsWith("si")) {
+    const lower = txt.toLowerCase();
+
+    if (lower.startsWith("si")) {
       await guardarPedidoCompleto(state);
       state.step = "finalizado";
-      return `${emo} ¡Pedido confirmado! Gracias por preferir Delicias Monte Luna 🌙✨`;
+      return `${emoji} ¡Tu pedido fue registrado con éxito! 🌙✨  
+Gracias por preferir *Delicias Monte Luna*.`;
     }
-    return `${emo} Para confirmar escribe *sí*.`;
+
+    return `${emoji} Para confirmar escribe *sí*.`;
   }
 
-  return `${emo} No entendí 😅 ¿Puedes repetirlo?`;
+  /***********************
+   * FINALIZADO
+   ***********************/
+  if (state.step === "finalizado") {
+    return `${emoji} Tu pedido ya fue confirmado 😊 Si deseas hacer otro, escribe *Hola*.`;
+  }
+
+  return `${emoji} No entendí 😅 ¿Puedes repetirlo?`;
 }
 
-/********************************************
- * 🔵 SERVIDOR EXPRESS
- ********************************************/
-const sesiones = {};
-
+/************************************************************
+ * 🔵 WEBHOOK WHATSAPP
+ ************************************************************/
 app.post("/whatsapp", async (req, res) => {
   try {
     const body = req.body;
     console.log("📩 BODY RECIBIDO:", body);
 
-    const phone = normalizarTelefono(body.phone || "");
+    const phone = (body.phone || "").replace(/\s+/g, "");
     const message = body.message || "";
 
-    if (!phone) return res.json({ reply: "Error con número de teléfono" });
+    if (!phone) return res.json({ reply: "Error: falta teléfono." });
 
-    console.log("📩 MENSAJE:", { phone, message });
-
-    if (!sesiones[phone]) sesiones[phone] = crearEstado(phone);
+    if (!sesiones[phone]) sesiones[phone] = nuevaSesion(phone);
+    const state = sesiones[phone];
 
     await guardarHistorial(phone, message, "cliente");
-
-    const respuesta = await procesarPaso(sesiones[phone], message);
-
+    const respuesta = await procesar(state, message);
     await guardarHistorial(phone, respuesta, "bot");
 
-    return res.json({ reply: respuesta });
+    res.json({ reply: respuesta });
 
   } catch (e) {
-    console.log("❌ ERROR GENERAL:", e);
-    return res.json({ reply: "Hubo un error procesando tu mensaje." });
+    console.error("❌ ERROR /whatsapp:", e);
+    res.json({ reply: "Hubo un error procesando tu mensaje 😥" });
   }
 });
 
-/********************************************
- * 🔵 INICIO DEL SERVIDOR
- ********************************************/
+/************************************************************
+ * 🔵 INICIAR SERVIDOR
+ ************************************************************/
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`);
+});
