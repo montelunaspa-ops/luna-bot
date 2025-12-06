@@ -1,10 +1,8 @@
 const rules = {
-  bienvenida:
-    "¡Hola! Soy Luna, asistente virtual de *Delicias Monte Luna* 🌙✨\nEstoy aquí para ayudarte con tu pedido 😊",
 
-  catalogo: `
-📦 *CATÁLOGO DELICIAS MONTE LUNA*
+  bienvenida: "¡Hola! Soy Luna, asistente virtual de *Delicias Monte Luna* 🌙✨\nEstoy aquí para ayudarte con tu pedido 😊",
 
+  catalogo: `📦 *CATÁLOGO DELICIAS MONTE LUNA*
 🍰 *QUEQUES PERUANOS* — $8.500  
 Sabores disponibles: Chocolate, Marmoleado, Piña, Vainilla, Naranja, Maracuyá  
 Porciones: 14, 16 o sin cortar  
@@ -48,78 +46,23 @@ Cocadas de Horno, Alfajorcito, Cachitos
     "San Joaquín"
   ],
 
-  comunasTexto: `
-📍 *COMUNAS CON DESPACHO*
-• Cerro Navia  
-• Cerrillos  
-• Conchalí  
-• Estación Central  
-• Independencia  
-• Lo Prado  
-• Lo Espejo (zona cercana a Pedro Aguirre Cerda y antes de Vespucio)  
-• Maipú (antes de Av. Vespucio entre Estación Central y Cerrillos)  
-• Pedro Aguirre Cerda  
-• Pudahuel (Norte y Sur)  
-• Quinta Normal  
-• Recoleta  
-• Renca  
-• Santiago Centro  
-• San Miguel  
-• San Joaquín  
-`,
-
   horarios: {
-    "Cerro Navia": "11:00–13:00",
-    "Cerrillos": "11:00–13:00",
-    "Conchalí": "12:00–14:00",
-    "Estación Central": "09:00–11:00",
-    "Independencia": "11:00–14:00",
-    "Lo Prado": "11:00–13:00",
-    "Lo Espejo": "10:00–12:00",
     "Maipú": "10:00–12:00",
-    "Pedro Aguirre Cerda": "10:00–12:00",
-    "Pudahuel": "12:00–14:00",
-    "Quinta Normal": "10:00–13:00",
-    "Recoleta": "11:00–13:00",
-    "Renca": "10:00–13:00",
-    "Santiago Centro": "09:00–11:00",
-    "San Miguel": "10:00–12:00",
-    "San Joaquín": "10:00–12:00"
-  },
-
-  baseConocimiento: `
-Delicias Monte Luna es un emprendimiento de pastelería artesanal.
-
-• Domingos NO se hacen despachos; pedidos de sábado y domingo se despachan el lunes.  
-• Estamos ubicados en Calle Chacabuco 1120, Santiago Centro.  
-• Las entregas se realizan al día siguiente del pedido (excepto domingo).  
-• Despacho GRATIS por compras sobre $14.990.  
-• Si la compra es menor, el despacho cuesta $2.400.  
-• Entregas por ruta con varios pedidos, la hora exacta NO se puede garantizar, solo rangos de horario.  
-• Métodos de pago: efectivo o débito.  
-• Entregas presenciales en domicilio (retiro):  
-  - Lunes a viernes: 10:00–11:00 y 18:00–20:00  
-  - Sábado: 10:00–12:00  
-  - Siempre con agendamiento previo.  
-`,
-
-  productosLista: `
-Queques Peruanos, Galletas y Delicias en bandeja, Muffins, Delicias Premium (alfajores, cachitos) y Queques Artesanales Rectangulares.
-`,
-
-  saboresDisponibles: [
-    "Chocolate",
-    "Marmoleado",
-    "Piña",
-    "Vainilla",
-    "Naranja",
-    "Maracuyá",
-    "Arándanos",
-    "Manzana",
-    "Coco",
-    "Red Velvet",
-    "Chips"
-  ]
+    "Pudahuel": "10:00–12:00",
+    "Lo Espejo": "12:00–14:00",
+    "Cerro Navia": "12:00–14:00",
+    "Conchalí": "12:00–14:00",
+    "San Joaquín": "14:00–16:00",
+    "San Miguel": "14:00–16:00",
+    "Quinta Normal": "14:00–16:00",
+    "Recoleta": "16:00–18:00",
+    "Renca": "16:00–18:00",
+    "Independencia": "16:00–18:00",
+    "Lo Prado": "16:00–18:00",
+    "Santiago Centro": "10:00–18:00",
+    "Pedro Aguirre Cerda": "12:00–14:00",
+    "Estación Central": "12:00–14:00"
+  }
 };
 
 module.exports = rules;
