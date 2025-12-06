@@ -5,28 +5,22 @@ const app = express();
 const { iniciarFlujo, procesarPaso } = require("./flow");
 const { guardarHistorial } = require("./dbSave");
 
-/* =======================================================
-   NORMALIZAR TELÉFONO (SOLUCIÓN DEFINITIVA)
-   ======================================================= */
-function sanitizePhone(rawPhone) {
-  if (!rawPhone) return "";
-
-  // eliminar espacios
-  let phone = rawPhone.trim().replace(/\s+/g, "");
-
-  // asegurar que tenga +
-  if (!phone.startsWith("+")) {
-    phone = "+" + phone.replace(/^\+?/, "");
-  }
-
-  return phone;
-}
-
+/* ===========================================================
+   🟢 CONFIGURAR PARSERS
+   =========================================================== */
 app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => { req.rawBody = buf.toString(); }
+}));
 
+/* ===========================================================
+   🟢 Sesiones en memoria
+   =========================================================== */
 const sesiones = {};
 
+/* ===========================================================
+   🟢 Decodificar cuerpo URL-Encoded (WhatsAuto)
+   =========================================================== */
 function decodificarBody(raw) {
   try {
     const params = new URLSearchParams(raw);
@@ -40,51 +34,42 @@ function decodificarBody(raw) {
   }
 }
 
+/* ===========================================================
+   🟢 ENDPOINT PRINCIPAL
+   =========================================================== */
 app.post("/whatsapp", async (req, res) => {
   let body = req.body;
 
-  // Cuando WhatsAuto NO envía JSON
   if (!body || Object.keys(body).length === 0) {
-    const raw = req.rawBody?.toString();
-    if (raw) body = decodificarBody(raw);
+    if (req.rawBody) body = decodificarBody(req.rawBody);
   }
-
-  console.log("📩 BODY RECIBIDO:", body);
 
   if (!body) {
-    console.log("❌ ERROR: body vacío");
-    return res.json({ reply: "Error procesando mensaje." });
+    console.log("❌ No se pudo leer el body");
+    return res.json({ reply: "Error procesando mensaje" });
   }
 
-  // 🔥 NORMALIZAR TELÉFONO
-  const phone = sanitizePhone(body.phone);
+  const phone = String(body.phone || "").replace(/\s/g, "");
   const message = body.message || "";
 
+  console.log("📩 BODY RECIBIDO:", body);
   console.log("📩 MENSAJE:", { phone, message });
 
-  if (!phone) {
-    console.log("❌ ERROR: phone vacío");
-    return res.json({ reply: "Error: no se recibió número." });
-  }
+  if (!phone) return res.json({ reply: "Error: no llegó número." });
 
-  // Guardar historial de entrada
   await guardarHistorial(phone, message, "cliente");
 
-  // Crear sesión si no existe
-  if (!sesiones[phone]) {
-    sesiones[phone] = iniciarFlujo({}, phone);
-  }
+  if (!sesiones[phone]) sesiones[phone] = iniciarFlujo({}, phone);
 
-  const state = sesiones[phone];
+  const respuesta = await procesarPaso(sesiones[phone], message);
 
-  // Procesar mensaje del cliente
-  const respuesta = await procesarPaso(state, message);
-
-  // Guardar historial de salida
   await guardarHistorial(phone, respuesta, "bot");
 
   res.json({ reply: respuesta });
 });
 
+/* ===========================================================
+   🟢 INICIAR SERVIDOR
+   =========================================================== */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor iniciado en el puerto ${PORT}`));
