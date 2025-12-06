@@ -1,17 +1,21 @@
 {
   "name": "luna-bot",
   "version": "1.0.0",
-  "description": "Bot de WhatsApp Luna para Delicias Monte Luna (WhatsAuto + OpenAI + Supabase)",
+  "description": "Bot de WhatsApp Luna - Delicias Monte Luna",
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
     "body-parser": "^1.20.2",
     "dotenv": "^17.2.3",
-    "express": "^4.18.2",
-    "openai": "^4.76.1"
+    "express": "^4.19.2",
+    "openai": "^4.53.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
