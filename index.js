@@ -1,66 +1,68 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
+const decode = require("./decode");
 const { iniciarFlujo, procesarPaso } = require("./flow");
-const { guardarHistorial } = require("./dbSave");
+const {
+  guardarHistorial,
+} = require("./dbSave");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.use(bodyParser.text({ type: "*/*" }));
 
-// WhatsAuto envía application/x-www-form-urlencoded
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-
-// Sesiones por número de teléfono
+// Sesiones en memoria
 const sesiones = {};
 
-function obtenerSesion(phone) {
-  if (!sesiones[phone]) {
-    console.log("🆕 Nueva sesión creada:", phone);
-    sesiones[phone] = iniciarFlujo({}, phone);
-  }
-  return sesiones[phone];
-}
-
-/* ============================================
-   ENDPOINT WHATSAPP (WebHook de WhatsAuto)
-============================================ */
 app.post("/whatsapp", async (req, res) => {
   try {
-    console.log("🟣 BODY DECODIFICADO:", req.body);
+    const raw = req.body || "";
+    console.log("🟣 BODY CRUDO RECIBIDO:", raw);
 
-    const { phone, message } = req.body;
+    const data = decode(raw);
+    console.log("🟣 BODY DECODIFICADO:", data);
 
-    if (!phone || !message) {
-      console.log("❌ Payload incompleto, falta phone o message");
-      return res.json({ reply: "Hubo un problema con el formato del mensaje." });
+    const phone = data.phone;
+    const mensaje = data.message;
+
+    if (!phone || !mensaje) {
+      return res.json({ reply: "Mensaje inválido recibido." });
     }
 
-    const state = obtenerSesion(phone);
+    console.log("📩 MENSAJE RECIBIDO:", { phone, message: mensaje });
 
-    // Guardamos mensaje del cliente
-    await guardarHistorial(phone, message, "cliente");
+    // 🔒 Mantener sesión existente
+    if (!sesiones[phone]) {
+      sesiones[phone] = iniciarFlujo({}, phone);
+      console.log("🆕 Nueva sesión creada:", phone);
+    } else {
+      console.log("🔄 Sesión existente:", phone, " STEP:", sesiones[phone].step);
+    }
 
-    // Procesamos con el flujo
-    const respuesta = await procesarPaso(state, message);
+    const state = sesiones[phone];
 
-    // Guardamos respuesta del bot
-    await guardarHistorial(phone, respuesta, "bot");
+    // Guardar historial (pero no detener flujo si falla)
+    guardarHistorial(phone, mensaje, "cliente").catch(() =>
+      console.log("⚠️ No se pudo guardar historial.")
+    );
+
+    // Procesar mensaje con el flujo
+    const respuesta = await procesarPaso(state, mensaje);
+
+    // Guardamos historial del bot
+    guardarHistorial(phone, respuesta, "bot").catch(() =>
+      console.log("⚠️ No se pudo guardar historial del bot.")
+    );
 
     console.log("🤖 RESPUESTA DEL BOT:", respuesta);
 
     return res.json({ reply: respuesta });
-  } catch (e) {
-    console.error("❌ ERROR EN /whatsapp:", e);
-    return res.json({
-      reply: "Ocurrió un error al procesar tu mensaje, por favor intenta de nuevo."
-    });
+
+  } catch (err) {
+    console.error("❌ ERROR EN /whatsapp:", err);
+    return res.json({ reply: "Ocurrió un error procesando tu mensaje." });
   }
 });
 
-/* ============================================
-   SERVIDOR
-============================================ */
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`);
+app.listen(3000, () => {
+  console.log("🚀 Servidor iniciado en el puerto 3000");
 });
