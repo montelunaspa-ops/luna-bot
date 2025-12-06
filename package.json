@@ -1,18 +1,15 @@
 {
   "name": "luna-bot",
   "version": "1.0.0",
+  "description": "WhatsApp IA Bot para Delicias Monte Luna",
   "main": "index.js",
-  "license": "MIT",
-  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.8",
+    "@supabase/supabase-js": "^2.43.5",
     "dotenv": "^17.2.3",
-    "express": "^4.19.2",
-    "body-parser": "^1.20.2",
-    "node-fetch": "^3.3.2",
-    "openai": "^4.29.0"
+    "express": "^4.18.2",
+    "openai": "^4.52.0"
   }
 }
