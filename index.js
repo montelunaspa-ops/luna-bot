@@ -1,55 +1,83 @@
+// ================================================
+//  LUNA BOT - INDEX.JS FINAL Y ESTABLE
+// ================================================
+
 require("dotenv").config();
 const express = require("express");
-const bodyParser = require("body-parser");
+const app = express();
+const cors = require("cors");
 
-const { nuevoEstado, procesarPaso } = require("./flow");
+const { iniciarFlujo, procesarPaso } = require("./flow");
 const { guardarHistorial } = require("./dbSave");
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+// ================================================
+//  1. CONFIGURACIÓN EXPRESS (OBLIGATORIA PARA WHATSauto)
+// ================================================
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // <-- NECESARIO PARA WHATSAUTO
 
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+// ================================================
+//  2. MEMORIA TEMPORAL EN RAM
+// ================================================
+const sesiones = {}; // { telefono: {state} }
 
-/* Sesiones en memoria */
-const sesiones = {};
-
-/* ===========================================================
-   🔵 WEBHOOK PRINCIPAL /whatsapp
-=========================================================== */
+// ================================================
+//  3. RUTA PRINCIPAL DEL WEBHOOK
+// ================================================
 app.post("/whatsapp", async (req, res) => {
   try {
-    const telefono = req.body.phone;
-    const mensaje = req.body.message;
+    // WhatsAuto envía FORM-URLENCODED → req.body funciona con urlencoded
+    console.log("🟣 BODY DECODIFICADO:", req.body);
 
-    if (!telefono || !mensaje) {
-      return res.json({ reply: "❌ Error: payload inválido." });
+    const { phone, message } = req.body;
+
+    // Validación mínima
+    if (!phone || !message) {
+      console.log("❌ ERROR: Falta phone o message en el payload.");
+      return res.json({ reply: "No entendí el mensaje 😅" });
     }
 
-    // Inicializar sesión si no existe
-    if (!sesiones[telefono]) {
-      sesiones[telefono] = nuevoEstado(telefono);
+    // Guardar historial (no detiene flujo si falla)
+    try {
+      await guardarHistorial(phone, message, "cliente");
+    } catch (e) {
+      console.log("❌ Error guardando historial:", e);
     }
 
-    const state = sesiones[telefono];
+    // Recuperar o crear nueva sesión
+    if (!sesiones[phone]) {
+      sesiones[phone] = iniciarFlujo({}, phone);
+      console.log("🆕 Nueva sesión creada:", phone);
+    }
 
-    // Guardar historial
-    await guardarHistorial(telefono, mensaje, "cliente");
+    const state = sesiones[phone];
 
-    // Procesar flujo
-    const respuesta = await procesarPaso(state, mensaje);
+    // Procesar mensaje
+    const respuesta = await procesarPaso(state, message);
 
-    // Guardar respuesta en historial
-    await guardarHistorial(telefono, respuesta, "bot");
+    // Guardar historial del bot
+    try {
+      await guardarHistorial(phone, respuesta, "bot");
+    } catch (e) {
+      console.log("❌ Error guardando historial:", e);
+    }
 
+    // Responder a WhatsAuto
     return res.json({ reply: respuesta });
-  } catch (err) {
-    console.error("❌ Error en /whatsapp:", err);
-    return res.json({ reply: "Ocurrió un error 😔 Intenta nuevamente." });
+
+  } catch (error) {
+    console.log("❌ ERROR EN /whatsapp:", error);
+    return res.json({
+      reply: "Lo siento 😔 ocurrió un error inesperado. Intenta nuevamente."
+    });
   }
 });
 
-/* Servidor */
+// ================================================
+//  4. PUERTO PARA RENDER
+// ================================================
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor iniciado en el puerto ${PORT}`);
 });
