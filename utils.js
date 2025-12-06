@@ -1,4 +1,6 @@
-function normalizar(str) {
+const rules = require("./rules");
+
+function normalizar(str = "") {
   return str
     .toLowerCase()
     .normalize("NFD")
@@ -6,47 +8,32 @@ function normalizar(str) {
     .trim();
 }
 
-function detectarCantidad(texto) {
-  const m = texto.match(/(\d+)\s*(unidades|u|unidad|porciones|p|x)?/i);
-  return m ? parseInt(m[1]) : 1;
-}
-
-function detectarSabores(texto) {
-  const lista = [
-    "chocolate",
-    "piña",
-    "marmoleado",
-    "vainilla",
-    "naranja",
-    "maracuyá",
-    "arándanos",
-    "chips",
-    "manzana"
-  ];
-  const low = normalizar(texto);
-  return lista.filter((s) => low.includes(normalizar(s)));
-}
-
+/**
+ * Detecta si el texto contiene alguna comuna de cobertura.
+ * No lista todas las comunas de Chile, solo las de rules.comunasCobertura.
+ */
 function comunaValida(texto) {
   const t = normalizar(texto);
-  const mapa = {
-    maipu: "Maipú",
-    pudahuel: "Pudahuel",
-    cerro_navja: "Cerro Navia",
-    conchali: "Conchalí",
-    estacion_central: "Estación Central"
-  };
+  if (!t) return null;
 
-  for (const k in mapa) {
-    if (t.includes(normalizar(mapa[k]))) return mapa[k];
+  for (const comuna of rules.comunasCobertura) {
+    const nc = normalizar(comuna);
+    if (t.includes(nc)) {
+      return comuna;
+    }
   }
+
+  // Correcciones típicas
+  if (t.includes("maipu")) return "Maipú";
+  if (t.includes("pudahuel")) return "Pudahuel";
+  if (t.includes("estacion central") || t.includes("estacioncentral"))
+    return "Estación Central";
+  if (t.includes("santiago")) return "Santiago Centro";
 
   return null;
 }
 
 module.exports = {
   normalizar,
-  detectarCantidad,
-  detectarSabores,
   comunaValida
 };
