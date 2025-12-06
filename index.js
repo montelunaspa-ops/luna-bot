@@ -7,11 +7,11 @@ const { guardarHistorial } = require("./dbSave");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// WhatsAuto envía x-www-form-urlencoded → necesitamos esto:
+// WhatsAuto envía application/x-www-form-urlencoded
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// Sesiones por teléfono
+// Sesiones por número de teléfono
 const sesiones = {};
 
 function obtenerSesion(phone) {
@@ -22,42 +22,45 @@ function obtenerSesion(phone) {
   return sesiones[phone];
 }
 
-/* ===========================================================
-   ENDPOINT PRINCIPAL WHATSAPP
-   =========================================================== */
+/* ============================================
+   ENDPOINT WHATSAPP (WebHook de WhatsAuto)
+============================================ */
 app.post("/whatsapp", async (req, res) => {
   try {
-    const raw = req.body;
-    console.log("🟣 BODY DECODIFICADO:", raw);
+    console.log("🟣 BODY DECODIFICADO:", req.body);
 
-    const phone = raw.phone;
-    const message = raw.message;
+    const { phone, message } = req.body;
 
     if (!phone || !message) {
-      console.log("❌ Payload incompleto");
-      return res.json({ reply: "Error de formato" });
+      console.log("❌ Payload incompleto, falta phone o message");
+      return res.json({ reply: "Hubo un problema con el formato del mensaje." });
     }
 
     const state = obtenerSesion(phone);
 
+    // Guardamos mensaje del cliente
     await guardarHistorial(phone, message, "cliente");
 
+    // Procesamos con el flujo
     const respuesta = await procesarPaso(state, message);
 
+    // Guardamos respuesta del bot
     await guardarHistorial(phone, respuesta, "bot");
 
     console.log("🤖 RESPUESTA DEL BOT:", respuesta);
 
-    res.json({ reply: respuesta });
+    return res.json({ reply: respuesta });
   } catch (e) {
-    console.log("❌ ERROR EN /whatsapp:", e);
-    res.json({ reply: "Ocurrió un error, inténtalo nuevamente." });
+    console.error("❌ ERROR EN /whatsapp:", e);
+    return res.json({
+      reply: "Ocurrió un error al procesar tu mensaje, por favor intenta de nuevo."
+    });
   }
 });
 
-/* ===========================================================
+/* ============================================
    SERVIDOR
-   =========================================================== */
-app.listen(PORT, () =>
-  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`)
-);
+============================================ */
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor iniciado en el puerto ${PORT}`);
+});
