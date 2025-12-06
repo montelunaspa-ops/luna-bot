@@ -1,68 +1,38 @@
-require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-const decode = require("./decode");
+const session = require("express-session");
 const { iniciarFlujo, procesarPaso } = require("./flow");
-const {
-  guardarHistorial,
-} = require("./dbSave");
 
 const app = express();
-app.use(bodyParser.text({ type: "*/*" }));
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
 
-// Sesiones en memoria
 const sesiones = {};
 
+/* ===========================================================
+   🟢 WEBHOOK
+   =========================================================== */
 app.post("/whatsapp", async (req, res) => {
   try {
-    const raw = req.body || "";
-    console.log("🟣 BODY CRUDO RECIBIDO:", raw);
+    const body = req.body;
 
-    const data = decode(raw);
-    console.log("🟣 BODY DECODIFICADO:", data);
+    const phone = body.phone;
+    const mensaje = body.message;
 
-    const phone = data.phone;
-    const mensaje = data.message;
-
-    if (!phone || !mensaje) {
-      return res.json({ reply: "Mensaje inválido recibido." });
-    }
-
-    console.log("📩 MENSAJE RECIBIDO:", { phone, message: mensaje });
-
-    // 🔒 Mantener sesión existente
     if (!sesiones[phone]) {
       sesiones[phone] = iniciarFlujo({}, phone);
-      console.log("🆕 Nueva sesión creada:", phone);
-    } else {
-      console.log("🔄 Sesión existente:", phone, " STEP:", sesiones[phone].step);
     }
 
-    const state = sesiones[phone];
+    const respuesta = await procesarPaso(sesiones[phone], mensaje);
 
-    // Guardar historial (pero no detener flujo si falla)
-    guardarHistorial(phone, mensaje, "cliente").catch(() =>
-      console.log("⚠️ No se pudo guardar historial.")
-    );
+    res.json({
+      reply: respuesta
+    });
 
-    // Procesar mensaje con el flujo
-    const respuesta = await procesarPaso(state, mensaje);
-
-    // Guardamos historial del bot
-    guardarHistorial(phone, respuesta, "bot").catch(() =>
-      console.log("⚠️ No se pudo guardar historial del bot.")
-    );
-
-    console.log("🤖 RESPUESTA DEL BOT:", respuesta);
-
-    return res.json({ reply: respuesta });
-
-  } catch (err) {
-    console.error("❌ ERROR EN /whatsapp:", err);
-    return res.json({ reply: "Ocurrió un error procesando tu mensaje." });
+  } catch (e) {
+    console.error("❌ ERROR EN /whatsapp:", e);
+    res.json({ reply: "Hubo un error procesando tu mensaje." });
   }
 });
 
-app.listen(3000, () => {
-  console.log("🚀 Servidor iniciado en el puerto 3000");
-});
+app.listen(3000, () => console.log("🚀 Servidor iniciado en el puerto 3000"));
