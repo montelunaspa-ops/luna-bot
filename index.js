@@ -20,7 +20,17 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(bodyParser.json());
+// Parsers para soportar WhatsAuto en cualquier formato
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
+app.use(bodyParser.text({ type: "*/*" }));
+
+// Log RAW
+app.use((req, res, next) => {
+  console.log("📥 [RAW BODY ENTRANTE]:", req.body);
+  console.log("📥 [HEADERS]:", req.headers);
+  next();
+});
 
 // ---------- OpenAI ----------
 const openai = new OpenAI({
@@ -80,19 +90,138 @@ const RULES_TEXT = `
 Puedes hacer tu pedido fácilmente por la página www.monteluna.cl o por WhatsApp.
 
 Catálogo:
-... (TODA TU SECCIÓN DEL CATÁLOGO — LA MISMA QUE ENVIASTE)
+
+•	🍰 Queques Peruanos
+Sabores disponibles:
+o	Chocolate
+o	Marmoleado
+o	Piña
+o	Vainilla
+o	Naranja
+o	Maracuyá
+Porciones: 14, 16 o sin cortar
+Tamaño: 28 cm de diámetro, 10 cm de alto aproximadamente
+Precio: $8.500
+
+•	🍪 Galletas y Delicias en Bandeja de 20 Unidades
+o	Rellena de Manjar
+o	Alemana
+o	Giro Coco
+o	Almejitas 
+o	Lengua de Gato
+o	Cocadas de Horno
+o	Alfajorcito
+o	Cachitos
+Precio: $4.000 (Bandeja por cada producto, no son surtidas)
+
+•	🧁 Muffins
+o	Muffin Chips (6 Unidades, empaque individual): $3.500
+ o	Muffins Premium Sabores Surtidos (6 Unidades, incluye: 1 Chocolate, 1 Red Velvet, 1 Arándano, 1 Coco, 2 Chips): $5.000
+
+•	🤩 Delicias Premium
+o	Alfajores Premium de Maicena (12 Unidades, 8-9 cm): $6.000
+o	Cachitos Manjar Premium (10 Unidades, 11-12 cm): $6.000
+
+•	📦 Queque Artesanal Rectangular
+o	Sabores: Vainilla Chips, Manzana, Arándanos 
+Rectangular de 20 cm
+Precio: $3.000
+Oferta: 4 Unidades por $10.000 (sabores a tu elección)
+Las entregas se realizan al día siguiente de realizar el pedido, excepto los domingos.
+¿En qué comuna vamos a despachar?
+
+Comunas de despacho
+•	Cerro Navia
+•	Cerrillos
+•	Conchalí
+•	Estación Central
+•	Independencia
+•	Lo Prado
+•	Lo Espejo (si es cerca de pedro Aguirre cerda y antes de Avenida Vespucio)
+•	Maipú (si es antes de Avenida Vespucio entre estación central y cerrillos)
+•	Pedro Aguirre Cerda
+•	Pudahuel (sur y norte)
+•	Quinta Normal
+•	Recoleta
+•	Renca
+•	Santiago Centro
+•	San Miguel
+•	San Joaquín
+
+Horarios aproximados de entrega por comuna
+•	Cerro Navia: 11-13 hrs
+•	Cerrillos: 11-13 hrs
+•	Conchalí: 12-14 hrs
+•	Estación Central: 9-11 hrs
+•	Independencia: 11-14 hrs
+•	Lo Prado: 11-13 hrs
+•	Lo Espejo: 10-12 hrs
+•	Maipú: 10-12 hrs
+•	Pedro Aguirre Cerda: 10-12 hrs
+•	Pudahuel: 12-14 hrs
+•	Quinta Normal: 10-13 hrs
+•	Recoleta: 11-13 hrs
+•	Renca: 10-13 hrs
+•	Santiago Centro: 9-11 hrs
+•	San Miguel: 10-12 hrs
+•	San Joaquín: 10-12 hrs
+
+Información adicional y reglas
+•	Domingos no se hacen despachos; pedidos recibidos el sábado y domingo se despachan el lunes
+•	Estamos ubicados en Calle Chacabuco 1120, Santiago Centro
+•	Entregas por ruta con varios pedidos, hora exacta de entrega no garantizada
+•	Métodos de pago: efectivo o débito
+•	Entregas presenciales en domicilio igualmente al dia siguiente en Calle Chacabuco 1120, Santiago Centro: lunes-viernes 10am a 11am y 6pm a 8pm, sábado 10am a 12pm, agendar previamente
+•	Horarios aproximados pueden variar en días festivos o de alto tráfico
 `;
 
 // =====================================================
 // 5. REGLAS DE FLUJO (PUNTOS 1 AL 7) PARA EL PROMPT
 // =====================================================
 const FLOW_RULES_TEXT = `
-FLUJO OBLIGATORIO DEL BOT:
-... (SE MANTIENE IGUAL)
+FLUJO OBLIGATORIO DEL BOT (LUNA):
+
+1. En el momento que se reciba cualquier mensaje se da la bienvenida.
+2. Se valida el número de WhatsApp en la base de datos clientes:
+   - Si está en la base de datos clientes se omite el paso 3 y el paso 5.
+   - Si NO está en la base de datos clientes se envía el catálogo y se pregunta para qué comuna será despachado el pedido.
+3. Se valida la comuna:
+   - Si la comuna está dentro de las comunas con reparto:
+     - Informar el horario aproximado de entrega.
+     - Informar que NO hay compra mínima.
+     - Informar que el despacho es GRATUITO por compras mayores a $14.990.
+     - Si la compra es menor, el despacho sale en $2.400.
+   - Si NO tenemos reparto en la comuna:
+     - Ofrecer entrega en el domicilio Calle Chacabuco 1120, Santiago Centro.
+     - Si la persona acepta, se sigue al paso 4.
+     - Si no acepta, se despide amablemente.
+4. Preguntar por los productos, sabores, cantidades y porciones que el cliente desea, teniendo en cuenta SOLO los productos del catálogo.
+5. Luego de identificar que el cliente pidió todo lo que desea:
+   - Preguntar los datos para el despacho UNO POR UNO:
+     a) Nombre y apellido del cliente.
+     b) Dirección.
+     c) Teléfono adicional (si no se tiene, se usa el mismo de WhatsApp).
+6. Al identificar que el pedido está completo y verificar que los datos de despacho están correctos:
+   - Enviar al cliente un resumen de lo que pidió.
+   - Incluir datos de despacho, fecha de entrega y hora aproximada.
+   - Pedir que confirme.
+7. Al realizar la confirmación:
+   - Guardar toda la información en las tablas correspondientes.
+   - Enviar un mensaje al cliente indicando que el pedido quedó agendado.
+   - Al final de la conversación se envía un emoji de check verde (✅).
+
+REGLAS ADICIONALES PARA LA IA:
+- Responde SIEMPRE en español, con tono amable y cercano.
+- Respuestas CORTAS y CONCISAS (máximo 2 frases).
+- Puedes responder preguntas libres del cliente en cualquier momento, pero luego vuelve a encaminar la conversación hacia el flujo de venta.
+- NO inventes productos, precios, comunas ni reglas que no estén en el texto de catálogo y reglas.
+- Si te preguntan algo fuera del contexto de catálogo, comunas o despachos, responde brevemente que solo puedes ayudar con información de pedidos, catálogo y despachos.
+- Nunca ofrezcas métodos de pago distintos a efectivo o débito.
+- Siempre que sea el primer mensaje del cliente en la conversación, DA LA BIENVENIDA.
 `;
 
 // =====================================================
-// 6. HELPERS PARA FECHA DE ENTREGA
+// 6. HELPERS PARA FECHA DE ENTREGA Y TABLAS
 // =====================================================
 function calcularFechaEntrega() {
   const hoy = new Date();
@@ -103,15 +232,15 @@ function calcularFechaEntrega() {
 }
 
 // =====================================================
-// 7. IA GPT-4O-MINI
+// 7. LLAMADO A GPT-4O-MINI
 // =====================================================
 async function askLunaAI({ session, userMessage }) {
-  console.log("🤖 [IA INPUT] Texto enviado a IA:", userMessage);
+  const knownClientFlag = session.knownClient ? "sí" : "no";
 
   const contextoJSON = {
     estado_sesion: session.state,
     telefono: session.phone,
-    cliente_conocido: session.knownClient ? "sí" : "no",
+    cliente_conocido: knownClientFlag,
     comuna_actual: session.comuna,
     carrito_actual: session.cart,
     datos_cliente: session.customer,
@@ -119,8 +248,12 @@ async function askLunaAI({ session, userMessage }) {
   };
 
   const systemMessage = `
-Eres Luna, asistente virtual...
-(RESTO IGUAL)
+Eres Luna, asistente virtual de Delicias Monte Luna.
+Sigue estrictamente las reglas del flujo y catálogo.
+
+${FLOW_RULES_TEXT}
+
+${RULES_TEXT}
 `;
 
   const messages = [
@@ -128,7 +261,7 @@ Eres Luna, asistente virtual...
     ...session.history.map((m) => ({ role: m.role, content: m.content })),
     {
       role: "user",
-      content: `Mensaje del cliente: "${userMessage}"\nContexto:\n${JSON.stringify(
+      content: `Mensaje del cliente: "${userMessage}".\nContexto:\n${JSON.stringify(
         contextoJSON
       )}`,
     },
@@ -140,93 +273,91 @@ Eres Luna, asistente virtual...
     temperature: 0.2,
   });
 
-  console.log("📄 [IA RAW] Respuesta sin procesar:", completion.choices[0]?.message?.content);
-
   return completion.choices[0]?.message?.content || "";
 }
 
 // =====================================================
-// 8. GUARDADO EN BASE DE DATOS
+// 8. GUARDAR EN SUPABASE
 // =====================================================
 async function upsertClienteFromSession(session) {
-  console.log("💾 [BD] Guardando cliente:", session.phone);
-
   const { phone, customer, comuna } = session;
-  const { nombre, direccion, telefono_alt } = customer || {};
+  const { nombre, direccion, telefono_alt } = customer;
 
-  await supabase.from("clientes").upsert(
-    {
-      telefono: phone,
-      nombre: nombre || null,
-      direccion: direccion || null,
-      comuna: comuna || null,
-      telefono_alt: telefono_alt || null,
-    },
-    { onConflict: "telefono" }
-  );
+  await supabase
+    .from("clientes")
+    .upsert(
+      {
+        telefono: phone,
+        nombre: nombre || null,
+        direccion: direccion || null,
+        comuna: comuna || null,
+        telefono_alt: telefono_alt || null,
+      },
+      { onConflict: "telefono" }
+    );
 }
 
 async function guardarPedidoCompleto(session, resumenTexto, dataAI) {
-  console.log("💾 [BD] Guardando pedido completo…");
+  const fecha_entrega =
+    dataAI?.fecha_entrega || session.delivery.fecha_entrega || calcularFechaEntrega();
 
-  try {
-    const fecha_entrega =
-      dataAI?.fecha_entrega || session.delivery.fecha_entrega || calcularFechaEntrega();
+  const horario_entrega =
+    dataAI?.horario_entrega || session.delivery.horario_aprox || null;
 
-    const horario_entrega =
-      dataAI?.horario_entrega || session.delivery.horario_aprox || null;
+  const { data: pedido } = await supabase
+    .from("pedidos")
+    .insert({
+      cliente_telefono: session.phone,
+      comuna: session.comuna,
+      fecha_entrega,
+      horario_aprox: horario_entrega,
+      resumen_texto: resumenTexto,
+      total_estimado: null,
+      estado: "pendiente",
+    })
+    .select()
+    .single();
 
-    const { data: pedido } = await supabase
-      .from("pedidos")
-      .insert({
-        cliente_telefono: session.phone,
-        comuna: session.comuna,
-        fecha_entrega,
-        horario_aprox: horario_entrega,
-        resumen_texto: resumenTexto,
-        total_estimado: null,
-        estado: "pendiente",
-      })
-      .select()
-      .single();
+  if (Array.isArray(session.cart)) {
+    const detalles = session.cart.map((item) => ({
+      pedido_id: pedido.id,
+      descripcion: item.descripcion || "",
+      cantidad: item.cantidad || 1,
+      categoria: item.categoria || null,
+      precio_unitario: null,
+    }));
 
-    console.log("💾 [BD] Pedido creado:", pedido?.id);
-
-    if (pedido && Array.isArray(session.cart)) {
-      const detalles = session.cart.map((item) => ({
-        pedido_id: pedido.id,
-        descripcion: item.descripcion || "",
-        cantidad: item.cantidad || 1,
-        categoria: item.categoria || null,
-        precio_unitario: null,
-      }));
-
-      await supabase.from("pedidos_detalle").insert(detalles);
-      console.log("💾 [BD] Detalled e pedido guardado.");
-    }
-  } catch (err) {
-    console.error("❌ Error guardando pedido:", err);
+    await supabase.from("pedidos_detalle").insert(detalles);
   }
 }
 
 // =====================================================
-// 9. ENDPOINT WHATSAUTO
+// 9. ENDPOINT PARA WHATSAUTO
 // =====================================================
 app.post("/whatsapp", async (req, res) => {
-  console.log("📥 [RECIBIDO] Payload WhatsAuto:", req.body);
+  console.log("📥 [PAYLOAD BRUTO]:", req.body);
 
-  const { phone, message } = req.body || {};
+  let payload = req.body;
+  try {
+    if (typeof payload === "string") payload = JSON.parse(payload);
+  } catch (e) {
+    console.log("⚠️ Body no es JSON parseable.");
+  }
+
+  console.log("📥 [PAYLOAD PROCESADO]:", payload);
+
+  const phone = payload.phone;
+  const message = payload.message;
 
   if (!phone || !message) {
     return res.json({
-      reply: "No pude leer tu mensaje, repítelo por favor 😊",
+      reply:
+        "Hola, soy Luna de Delicias Monte Luna. No pude leer bien tu mensaje, ¿puedes repetirlo por favor? 😊",
     });
   }
 
   const session = getSession(phone);
-  console.log("🗂️ [SESION] Sesión cargada:", session);
 
-  // Cargar cliente
   if (!session.checkedClient) {
     const { data: cliente } = await supabase
       .from("clientes")
@@ -240,8 +371,9 @@ app.post("/whatsapp", async (req, res) => {
       session.customer.direccion = cliente.direccion;
       session.customer.telefono_alt = cliente.telefono_alt;
       session.comuna = cliente.comuna;
-
-      console.log("🟩 [SESION] Cliente encontrado en BD:", cliente);
+      console.log("✅ Cliente existente:", phone);
+    } else {
+      console.log("ℹ️ Cliente nuevo:", phone);
     }
 
     session.checkedClient = true;
@@ -249,51 +381,53 @@ app.post("/whatsapp", async (req, res) => {
 
   pushHistory(session, "user", message);
 
-  let aiRawResponse;
+  let aiResponse;
   try {
-    aiRawResponse = await askLunaAI({ session, userMessage: message });
+    aiResponse = await askLunaAI({ session, userMessage: message });
   } catch (err) {
     return res.json({
-      reply: "Error temporal, intenta de nuevo 🙏",
+      reply:
+        "Estoy teniendo un problema técnico. ¿Puedes intentar nuevamente en un momento? 🙏",
     });
   }
 
   let ai;
   try {
-    ai = JSON.parse(aiRawResponse);
-    console.log("📦 [IA JSON] Interpretado:", ai);
-  } catch {
-    return res.json({
-      reply: "No logré entenderte, repite por favor 😊",
-    });
+    ai = JSON.parse(aiResponse);
+  } catch (err) {
+    return res.json({ reply: aiResponse });
   }
 
-  const replyText = ai.reply || "Listo 😊";
+  const replyText = ai.reply;
+  const nextState = ai.state;
   const data = ai.data || {};
-  session.state = ai.state || session.state;
+
+  session.state = nextState;
 
   if (data.comuna) session.comuna = data.comuna;
-  if (data.productos) session.cart = data.productos;
-  if (data.datos_cliente)
-    session.customer = { ...session.customer, ...data.datos_cliente };
+  if (Array.isArray(data.productos)) session.cart = data.productos;
+  if (data.datos_cliente) session.customer = { ...session.customer, ...data.datos_cliente };
   if (data.fecha_entrega) session.delivery.fecha_entrega = data.fecha_entrega;
   if (data.horario_entrega) session.delivery.horario_aprox = data.horario_entrega;
 
-  if (data.confirmado && !session.orderSaved) {
+  const confirmado = !!data.confirmado;
+
+  if (confirmado && !session.orderSaved) {
     await upsertClienteFromSession(session);
 
-    const resumen =
-      session.cart.map((p) => `${p.cantidad || 1} x ${p.descripcion}`).join(", ");
+    const resumenTexto =
+      `Resumen del pedido: ` +
+      (session.cart || [])
+        .map((p) => `${p.cantidad || 1} x ${p.descripcion}`)
+        .join(", ");
 
-    await guardarPedidoCompleto(session, resumen, data);
+    await guardarPedidoCompleto(session, resumenTexto, data);
 
     session.orderSaved = true;
     session.state = "finalizado";
   }
 
   pushHistory(session, "assistant", replyText);
-
-  console.log("📤 [ENVIADO] Respuesta al cliente:", replyText);
 
   return res.json({ reply: replyText });
 });
@@ -302,7 +436,7 @@ app.post("/whatsapp", async (req, res) => {
 // 10. SERVIDOR HTTP
 // =======================
 app.get("/", (req, res) => {
-  res.send("Luna Bot funcionando con logs completos 🔥");
+  res.send("Luna Bot - Delicias Monte Luna está funcionando ✅");
 });
 
 app.listen(PORT, () => {
