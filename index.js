@@ -2,11 +2,26 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 
-const { iniciarFlujo, procesarPaso } = require("./flow");
-const { guardarHistorial } = require("./dbSave");
+// Capturar rawBody ANTES de los parsers
+app.use((req, res, next) => {
+  let data = "";
+  req.setEncoding("utf8");
+
+  req.on("data", chunk => {
+    data += chunk;
+  });
+
+  req.on("end", () => {
+    req.rawBody = data;
+    next();
+  });
+});
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
+const { iniciarFlujo, procesarPaso } = require("./flow");
+const { guardarHistorial } = require("./dbSave");
 
 // Sesiones en memoria
 const sesiones = {};
@@ -27,10 +42,11 @@ function decodificarBody(rawBody) {
 app.post("/whatsapp", async (req, res) => {
   let body = req.body;
 
-  // Cuando WhatsAuto NO envía JSON
+  // Si WhatsAuto NO envió JSON → usar rawBody
   if (!body || Object.keys(body).length === 0) {
-    const raw = req.rawBody?.toString();
-    if (raw) body = decodificarBody(raw);
+    if (req.rawBody) {
+      body = decodificarBody(req.rawBody);
+    }
   }
 
   if (!body) {
@@ -42,8 +58,8 @@ app.post("/whatsapp", async (req, res) => {
   const message = body.message || "";
 
   if (!phone) {
-    console.log("❌ ERROR: WhatsAuto no envió PHONE.");
-    return res.json({ reply: "Hubo un error." });
+    console.log("❌ ERROR: WhatsAuto no envió phone.");
+    return res.json({ reply: "Error de formato recibido." });
   }
 
   // Guardar historial
@@ -59,7 +75,7 @@ app.post("/whatsapp", async (req, res) => {
   // Procesar mensaje
   const respuesta = await procesarPaso(state, message);
 
-  // Guardar historial respuesta bot
+  // Guardar respuesta del bot
   await guardarHistorial(phone, respuesta, "bot");
 
   res.json({ reply: respuesta });
